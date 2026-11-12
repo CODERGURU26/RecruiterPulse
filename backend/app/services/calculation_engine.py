@@ -55,26 +55,16 @@ class CalculationEngine:
 
     @staticmethod
     def parse_date_series(series: pd.Series) -> pd.Series:
-        """Parses heterogeneous date strings into standardized datetime objects."""
-        def _parse_single(val: Any) -> Optional[pd.Timestamp]:
-            if pd.isna(val) or val is None:
-                return pd.NaT
-            s = str(val).strip()
-            if not s:
-                return pd.NaT
-            # If format begins with 4 digits (e.g. YYYY-MM-DD or YYYY/MM/DD), use ISO/standard order
-            if len(s) >= 10 and s[:4].isdigit() and s[4] in ("-", "/", "."):
-                try:
-                    return pd.to_datetime(s, format="ISO8601")
-                except Exception:
-                    pass
-            # Default to day-first (DD/MM/YYYY or DD-MM-YYYY)
-            try:
-                return pd.to_datetime(s, dayfirst=True)
-            except Exception:
-                return pd.to_datetime(s, errors="coerce")
+        """Fast vectorized parsing of heterogeneous date strings into standardized datetime objects."""
+        s_clean = series.astype(str).str.strip()
+        # 1. Vectorized mixed-format parsing with dayfirst=True for Indian conventions
+        parsed = pd.to_datetime(s_clean, format="mixed", dayfirst=True, errors="coerce")
+        # 2. Correct any YYYY-MM-DD or YYYY/MM/DD ISO rows where day/month might invert
+        iso_mask = s_clean.str.match(r"^\d{4}[-/.]")
+        if iso_mask.any():
+            parsed.loc[iso_mask] = pd.to_datetime(s_clean[iso_mask], format="ISO8601", errors="coerce")
+        return parsed
 
-        return series.apply(_parse_single)
 
 
     @classmethod

@@ -1,0 +1,61 @@
+import enum
+
+
+class UserRole(str, enum.Enum):
+    AGENCY_OWNER = "AGENCY_OWNER"
+    MANAGER = "MANAGER"
+    MIS_EXECUTIVE = "MIS_EXECUTIVE"
+    RECRUITER = "RECRUITER"
+
+
+class SubscriptionTier(str, enum.Enum):
+    TRIAL = "TRIAL"
+    STARTER = "STARTER"
+    PRO = "PRO"
+    ENTERPRISE = "ENTERPRISE"
+
+
+class SourceType(str, enum.Enum):
+    GOOGLE_SHEET = "GOOGLE_SHEET"
+    EXCEL_UPLOAD = "EXCEL_UPLOAD"
+    CSV_UPLOAD = "CSV_UPLOAD"
+
+
+class SyncStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    PENDING_MAPPING = "PENDING_MAPPING"
+    ERROR = "ERROR"
+    PAUSED = "PAUSED"
+
+
+class StandardField(str, enum.Enum):
+    ACTIVITY_DATE = "activity_date"
+    CALL_STATUS = "call_status"
+    CANDIDATE_REF = "candidate_ref"
+    JOB_ROLE = "job_role"
+
+
+class CallCategory(str, enum.Enum):
+    CONNECTED = "CONNECTED"
+    NOT_CONNECTED = "NOT_CONNECTED"
+    IGNORED = "IGNORED"
+
+
+class ReportStatus(str, enum.Enum):
+    DRAFT_PENDING_APPROVAL = "DRAFT_PENDING_APPROVAL"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class AuditAction(str, enum.Enum):
+    WORKSPACE_CREATED = "WORKSPACE_CREATED"
+    USER_INVITED = "USER_INVITED"
+    DATA_SOURCE_CONNECTED = "DATA_SOURCE_CONNECTED"
+    MAPPING_CONFIRMED = "MAPPING_CONFIRMED"
+    REPORT_GENERATED = "REPORT_GENERATED"
+    REPORT_APPROVED = "REPORT_APPROVED"
+    REPORT_REJECTED = "REPORT_REJECTED"
+    REPORT_SUPERSEDED = "REPORT_SUPERSEDED"
+    REPORT_EXPORTED_WHATSAPP = "REPORT_EXPORTED_WHATSAPP"
+

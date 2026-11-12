@@ -1,0 +1,178 @@
+from datetime import date, datetime
+from typing import Dict, List, Any, Optional, Set, Tuple
+import pandas as pd
+from app.models.enums import StandardField, CallCategory
+
+
+class RecruiterMetricsResult:
+    """Encapsulates aggregated daily metrics for a recruiter."""
+    def __init__(
+        self,
+        target_date: date,
+        connected_calls: int,
+        not_connected_calls: int,
+        total_calls: int,
+        connected_rate: float,
+        job_roles: List[str],
+        unmapped_statuses: List[str],
+        duplicates_removed: int,
+        total_rows_processed: int
+    ):
+        self.target_date = target_date
+        self.connected_calls = connected_calls
+        self.not_connected_calls = not_connected_calls
+        self.total_calls = total_calls
+        self.connected_rate = connected_rate
+        self.job_roles = job_roles
+        self.unmapped_statuses = unmapped_statuses
+        self.duplicates_removed = duplicates_removed
+        self.total_rows_processed = total_rows_processed
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "target_date": self.target_date.isoformat(),
+            "connected_calls": self.connected_calls,
+            "not_connected_calls": self.not_connected_calls,
+            "total_calls": self.total_calls,
+            "connected_rate": self.connected_rate,
+            "job_roles": self.job_roles,
+            "unmapped_statuses": self.unmapped_statuses,
+            "duplicates_removed": self.duplicates_removed,
+            "total_rows_processed": self.total_rows_processed
+        }
+
+
+class CalculationEngine:
+    """
+    Stateless processing engine that:
+    1. Parses in-memory DataFrame
+    2. Filters activity by reporting date
+    3. Deduplicates repetitive rows
+    4. Categorizes call statuses
+    5. Calculates daily metrics
+    6. Strips all candidate PII (DPDP compliant)
+    """
+
+    @staticmethod
+    def parse_date_series(series: pd.Series) -> pd.Series:
+        """Parses heterogeneous date strings into standardized datetime objects."""
+        # Handles DD/MM/YYYY, YYYY-MM-DD, DD-MM-YYYY, etc.
+        return pd.to_datetime(series, errors="coerce", dayfirst=True)
+
+    @classmethod
+    def calculate_recruiter_activity(
+        cls,
+        df: pd.DataFrame,
+        column_mapping: Dict[StandardField, str],
+        status_taxonomy: Dict[str, CallCategory],
+        target_date: Optional[date] = None
+    ) -> RecruiterMetricsResult:
+        """
+        Executes calling calculation pipeline on raw spreadsheet DataFrame.
+        """
+        if target_date is None:
+            target_date = date.today()
+
+        date_col = column_mapping.get(StandardField.ACTIVITY_DATE)
+        status_col = column_mapping.get(StandardField.CALL_STATUS)
+        candidate_col = column_mapping.get(StandardField.CANDIDATE_REF)
+        role_col = column_mapping.get(StandardField.JOB_ROLE)
+
+        if not date_col or date_col not in df.columns:
+            raise ValueError(f"Activity date column '{date_col}' not found in sheet.")
+        if not status_col or status_col not in df.columns:
+            raise ValueError(f"Call status column '{status_col}' not found in sheet.")
+
+        # Drop entirely empty rows
+        clean_df = df.dropna(how="all").copy()
+        total_input_rows = len(clean_df)
+
+        # 1. Date Filtering
+        clean_df["_parsed_date"] = cls.parse_date_series(clean_df[date_col])
+        clean_df = clean_df.dropna(subset=["_parsed_date"])
+        
+        # Filter strictly for target_date
+        filtered_df = clean_df[clean_df["_parsed_date"].dt.date == target_date].copy()
+        
+        if filtered_df.empty:
+            return RecruiterMetricsResult(
+                target_date=target_date,
+                connected_calls=0,
+                not_connected_calls=0,
+                total_calls=0,
+                connected_rate=0.0,
+                job_roles=[],
+                unmapped_statuses=[],
+                duplicates_removed=0,
+                total_rows_processed=total_input_rows
+            )
+
+        # 2. Deduplication Safeguard
+        initial_filtered_count = len(filtered_df)
+        dedupe_subset = []
+        if candidate_col and candidate_col in filtered_df.columns:
+            dedupe_subset.append(candidate_col)
+        dedupe_subset.append(status_col)
+        
+        if dedupe_subset:
+            filtered_df = filtered_df.drop_duplicates(subset=dedupe_subset, keep="first")
+        
+        duplicates_removed = initial_filtered_count - len(filtered_df)
+
+        # 3. Job Roles Aggregation
+        active_roles: Set[str] = set()
+        if role_col and role_col in filtered_df.columns:
+            for r in filtered_df[role_col].dropna().unique():
+                role_str = str(r).strip()
+                if role_str and role_str.lower() not in ("nan", "none", "-"):
+                    active_roles.add(role_str)
+
+        # 4. Status Classification & Metric Calculation
+        connected_count = 0
+        not_connected_count = 0
+        unmapped_list: Set[str] = set()
+
+        for raw_val in filtered_df[status_col].dropna():
+            cleaned_status = str(raw_val).strip().lower()
+            if not cleaned_status or cleaned_status in ("nan", "none", "-"):
+                continue
+
+            # Look up in taxonomy
+            category = status_taxonomy.get(cleaned_status)
+            
+            # Substring fallback if not exact
+            if category is None:
+                for taxonomy_term, cat in status_taxonomy.items():
+                    if taxonomy_term in cleaned_status:
+                        category = cat
+                        break
+
+            if category == CallCategory.CONNECTED:
+                connected_count += 1
+            elif category == CallCategory.NOT_CONNECTED:
+                not_connected_count += 1
+            elif category == CallCategory.IGNORED:
+                pass  # Discard ignored rows (e.g. duplicate tags)
+            else:
+                # Unmapped status - alert MIS
+                unmapped_list.add(str(raw_val).strip())
+                # Default to not connected attempt for safety until confirmed
+                not_connected_count += 1
+
+        total_calls = connected_count + not_connected_count
+        connected_rate = round((connected_count / total_calls * 100), 2) if total_calls > 0 else 0.0
+
+        # Note: Candidate names, phone numbers, and raw rows are NOT returned
+        # and are naturally garbage-collected here (Zero PII stored)
+        return RecruiterMetricsResult(
+            target_date=target_date,
+            connected_calls=connected_count,
+            not_connected_calls=not_connected_count,
+            total_calls=total_calls,
+            connected_rate=connected_rate,
+            job_roles=sorted(list(active_roles)),
+            unmapped_statuses=sorted(list(unmapped_list)),
+            duplicates_removed=duplicates_removed,
+            total_rows_processed=total_input_rows
+        )
+

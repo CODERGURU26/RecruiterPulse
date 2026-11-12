@@ -24,6 +24,7 @@ def main():
     from tests.test_multi_tenancy import TestMultiTenancyIsolation
     from tests.test_report_lifecycle import TestReportLifecycle
     from tests.test_performance import TestPerformanceAndScalability
+    from tests.test_google_integrations import TestGoogleIntegrations
 
     suite.addTests(loader.loadTestsFromTestCase(TestColumnDetector))
     suite.addTests(loader.loadTestsFromTestCase(TestCalculationEngine))
@@ -31,6 +32,8 @@ def main():
     suite.addTests(loader.loadTestsFromTestCase(TestMultiTenancyIsolation))
     suite.addTests(loader.loadTestsFromTestCase(TestReportLifecycle))
     suite.addTests(loader.loadTestsFromTestCase(TestPerformanceAndScalability))
+    suite.addTests(loader.loadTestsFromTestCase(TestGoogleIntegrations))
+
 
     runner = unittest.TextTestRunner(verbosity=2)
     start_time = time.perf_counter()

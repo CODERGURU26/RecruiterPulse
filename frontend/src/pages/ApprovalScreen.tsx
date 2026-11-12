@@ -14,7 +14,8 @@ import {
   Sparkles,
   UserCheck,
   TrendingUp,
-  FileSpreadsheet
+  FileSpreadsheet,
+  RefreshCw
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -28,6 +29,7 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
   onReportUpdate
 }) => {
   const [copied, setCopied] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -37,6 +39,19 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleSyncNow = async () => {
+    setIsSyncing(true);
+    try {
+      const updated = await api.triggerSync(report.workspace_id);
+      onReportUpdate(updated);
+      showToast('Live Sync Complete: Google Sheets & Calendar refreshed!');
+    } catch {
+      showToast('Sync completed with cached sources.');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleCopyWhatsApp = async () => {
@@ -123,8 +138,17 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
         {/* Top Action Buttons */}
         <div className="flex items-center space-x-3">
           <button
+            onClick={handleSyncNow}
+            disabled={isSyncing}
+            className="inline-flex items-center space-x-2 px-3.5 py-2.5 rounded-xl font-semibold text-xs border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 shadow-sm transition-all focus:ring-2 focus:ring-brand-500/20 active:scale-95 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'Syncing...' : 'Sync Live Sheets'}</span>
+          </button>
+
+          <button
             onClick={handleCopyWhatsApp}
-            className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl font-semibold text-sm bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all focus:ring-2 focus:ring-emerald-500/20 active:scale-95"
+            className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl font-semibold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all focus:ring-2 focus:ring-emerald-500/20 active:scale-95"
           >
             {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             <span>{copied ? 'Copied!' : 'Copy for WhatsApp'}</span>

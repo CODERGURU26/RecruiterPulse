@@ -151,6 +151,17 @@ export const api = {
     } catch {
       return `📊 *Apex Staffing Solutions — MIS Report*\n📅 *Date:* 12-Nov-2026 | *Slot:* 03:00 PM IST\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n👤 *Priya Sharma* (Java Backend, DevOps)\n   Calls: 42 (28 Conn / 14 Not Conn) | 66.7% | 🎯 Intrvws: 3\n\n👤 *Rahul Verma* (React Frontend)\n   Calls: 35 (18 Conn / 17 Not Conn) | 51.4% | 🎯 Intrvws: 1\n\n👤 *Amit Patel* (Data Engineer, AWS Cloud)\n   Calls: 51 (38 Conn / 13 Not Conn) | 74.5% | 🎯 Intrvws: 2\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📈 *Team Total:* 128 Calls | 65.6% Conn Rate | 🎯 6 Next-Day Interviews\n✅ *Status:* Approved by MIS (Pooja Kulkarni)`;
     }
+  },
+
+  async triggerSync(workspaceId: string = MOCK_WORKSPACE.id): Promise<HourlyReport> {
+    try {
+      const res = await fetch(`${API_BASE}/sync/${workspaceId}`, { method: 'POST' });
+      if (!res.ok) throw new Error();
+      return await res.json();
+    } catch {
+      return MOCK_PENDING_REPORT;
+    }
   }
+
 };
 

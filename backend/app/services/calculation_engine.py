@@ -56,8 +56,26 @@ class CalculationEngine:
     @staticmethod
     def parse_date_series(series: pd.Series) -> pd.Series:
         """Parses heterogeneous date strings into standardized datetime objects."""
-        # Handles DD/MM/YYYY, YYYY-MM-DD, DD-MM-YYYY, etc.
-        return pd.to_datetime(series, errors="coerce", dayfirst=True)
+        def _parse_single(val: Any) -> Optional[pd.Timestamp]:
+            if pd.isna(val) or val is None:
+                return pd.NaT
+            s = str(val).strip()
+            if not s:
+                return pd.NaT
+            # If format begins with 4 digits (e.g. YYYY-MM-DD or YYYY/MM/DD), use ISO/standard order
+            if len(s) >= 10 and s[:4].isdigit() and s[4] in ("-", "/", "."):
+                try:
+                    return pd.to_datetime(s, format="ISO8601")
+                except Exception:
+                    pass
+            # Default to day-first (DD/MM/YYYY or DD-MM-YYYY)
+            try:
+                return pd.to_datetime(s, dayfirst=True)
+            except Exception:
+                return pd.to_datetime(s, errors="coerce")
+
+        return series.apply(_parse_single)
+
 
     @classmethod
     def calculate_recruiter_activity(

@@ -6,8 +6,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
-from app.core.database import Base, engine
+from app.core.database import Base, engine, SessionLocal
 from app.api.v1.router import api_router
+from app.services.workspace_bootstrap import ensure_default_workspace
 
 # Create tables on startup
 Base.metadata.create_all(bind=engine)
@@ -40,6 +41,19 @@ app.add_middleware(
 
 # Include API v1 Router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+@app.on_event("startup")
+def provision_default_workspace():
+    db = SessionLocal()
+    try:
+        ensure_default_workspace(db)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 @app.get("/health", tags=["Health"])

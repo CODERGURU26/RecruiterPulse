@@ -15,8 +15,11 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  getWorkspace(workspaceId = DEFAULT_WORKSPACE_ID): Promise<Workspace> {
-    return request(`${API_BASE}/workspaces/${workspaceId}`);
+  getWorkspace(workspaceId?: string): Promise<Workspace> {
+    const path = workspaceId
+      ? `${API_BASE}/workspaces/${workspaceId}`
+      : `${API_BASE}/workspaces/default`;
+    return request(path);
   },
 
   getRecruiters(workspaceId = DEFAULT_WORKSPACE_ID): Promise<Recruiter[]> {

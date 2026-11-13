@@ -4,7 +4,7 @@ RecruiterPulse imports recruiter call logs, calculates per-recruiter daily metri
 
 ## Run locally
 
-1. From `backend`, run `pip install -r requirements.txt`, `python seed_db.py`, then `uvicorn app.main:app --reload`.
+1. From `backend`, run `pip install -r requirements.txt`, then `uvicorn app.main:app --reload`. Backend startup automatically ensures the default Apex workspace and its starter data exist; `python seed_db.py` can also be run manually.
 2. From `frontend`, run `npm install` and `npm run dev`.
 3. Open `http://localhost:3000`. The local frontend expects the seeded workspace ID `ws-apex-101`.
 

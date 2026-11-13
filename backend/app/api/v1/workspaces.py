@@ -86,6 +86,20 @@ def create_workspace(payload: WorkspaceCreate, db: Session = Depends(get_db)):
     return workspace
 
 
+@router.get("/default", response_model=WorkspaceResponse)
+def get_default_workspace(db: Session = Depends(get_db)):
+    """Returns the workspace provisioned for the local frontend."""
+    workspace = db.query(Workspace).filter(
+        Workspace.slug == "apex-staffing"
+    ).first()
+    if not workspace:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Default workspace is not provisioned. Restart the backend to initialize it."
+        )
+    return workspace
+
+
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
 def get_workspace(workspace_id: str, db: Session = Depends(get_db)):
     """Retrieves workspace settings, including service account email."""
@@ -121,4 +135,3 @@ def list_recruiters(workspace_id: str, db: Session = Depends(get_db)):
         RecruiterProfile.workspace_id == workspace_id,
         RecruiterProfile.is_active == True
     ).all()
-

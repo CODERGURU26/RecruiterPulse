@@ -28,6 +28,7 @@ def main():
     from tests.test_spreadsheet_parser import TestSpreadsheetParserAndRecruiter
     from tests.test_real_file_processing import TestRealFileProcessing
     from tests.test_sync_coordinator import TestSyncCoordinator
+    from tests.test_workspace_bootstrap import TestWorkspaceBootstrap
 
     suite.addTests(loader.loadTestsFromTestCase(TestColumnDetector))
     suite.addTests(loader.loadTestsFromTestCase(TestCalculationEngine))
@@ -39,6 +40,7 @@ def main():
     suite.addTests(loader.loadTestsFromTestCase(TestSpreadsheetParserAndRecruiter))
     suite.addTests(loader.loadTestsFromTestCase(TestRealFileProcessing))
     suite.addTests(loader.loadTestsFromTestCase(TestSyncCoordinator))
+    suite.addTests(loader.loadTestsFromTestCase(TestWorkspaceBootstrap))
 
 
     runner = unittest.TextTestRunner(verbosity=2)

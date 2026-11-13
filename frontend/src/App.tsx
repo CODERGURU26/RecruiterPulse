@@ -4,7 +4,7 @@ import { ApprovalScreen } from './pages/ApprovalScreen';
 import { ManagementDashboard } from './pages/ManagementDashboard';
 import { DataSourcesScreen } from './pages/DataSourcesScreen';
 import { HourlyReport, Workspace } from './types';
-import { api, DEFAULT_WORKSPACE_ID } from './services/api';
+import { api } from './services/api';
 
 type AppTab = 'approval' | 'dashboard' | 'sources';
 
@@ -19,7 +19,7 @@ export function App() {
     setLoading(true);
     setLoadError(null);
     try {
-      const currentWorkspace = await api.getWorkspace(DEFAULT_WORKSPACE_ID);
+      const currentWorkspace = await api.getWorkspace();
       setWorkspace(currentWorkspace);
       const pending = await api.getPendingReport(currentWorkspace.id);
       const latestApproved = pending ? null : await api.getLatestApprovedReport(currentWorkspace.id);

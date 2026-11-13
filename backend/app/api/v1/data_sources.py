@@ -145,6 +145,14 @@ async def process_real_file(
     if recruiter_name in ("__auto__", ""):
         recruiter_name = None
     process_all_recruiters = recruiter_name in (None, "Agency Master Sheet (All Recruiters)")
+    if google_sheet_url and process_all_recruiters and not any(
+        ColumnDetector.analyze_dataframe(sheet_df)[StandardField.RECRUITER_NAME]["source_column"]
+        for sheet_df, _ in parsed_sheets
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter the recruiter name for this selected Google Sheets tab, or use a tab with a Recruiter column."
+        )
     has_selected_recruiter_tab = (
         recruiter_name is not None
         and not process_all_recruiters

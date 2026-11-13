@@ -209,6 +209,14 @@ class TestRealFileProcessing(unittest.IsolatedAsyncioTestCase):
             }))
         ):
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                missing_google_recruiter = await client.post(
+                    "/api/v1/data-sources/process-real-file",
+                    data={
+                        "workspace_id": workspace_id,
+                        "target_date_str": "2026-11-13",
+                        "google_sheet_url": "https://docs.google.com/spreadsheets/d/example/edit?gid=123"
+                    }
+                )
                 google_response = await client.post(
                     "/api/v1/data-sources/process-real-file",
                     data={
@@ -219,6 +227,8 @@ class TestRealFileProcessing(unittest.IsolatedAsyncioTestCase):
                     }
                 )
 
+        self.assertEqual(missing_google_recruiter.status_code, 400, missing_google_recruiter.text)
+        self.assertIn("Enter the recruiter name", missing_google_recruiter.json()["detail"])
         self.assertEqual(google_response.status_code, 200, google_response.text)
         self.assertEqual(google_response.json()["metrics"]["total_calls"], 1)
         self.assertEqual(google_response.json()["recruiter_name"], "Nina Shah")

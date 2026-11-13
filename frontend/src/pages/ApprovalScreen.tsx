@@ -46,7 +46,7 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
     try {
       const updated = await api.triggerSync(report.workspace_id);
       onReportUpdate(updated);
-      showToast('Live Sync Complete: Google Sheets & Calendar refreshed!');
+      showToast('Live Sync Complete: registered recruiter sheets refreshed.');
     } catch (error) {
       showToast(error instanceof Error ? `Sync failed: ${error.message}` : 'Sync failed.');
     } finally {
@@ -135,7 +135,7 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
             )}
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Daily calling totals calculated from the uploaded recruiter spreadsheet. Review activity before publishing.
+            Daily calling totals calculated from registered recruiter sheets. Review activity before publishing.
           </p>
         </div>
 

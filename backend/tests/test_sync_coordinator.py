@@ -12,6 +12,7 @@ from app.models import (
     CallCategory,
     ColumnMapping,
     DataSource,
+    HourlyReport,
     RecruiterProfile,
     SourceType,
     StandardField,
@@ -122,6 +123,70 @@ class TestSyncCoordinator(unittest.IsolatedAsyncioTestCase):
                 ["Active Recruiter"]
             )
             self.assertEqual(report.metrics[0].job_roles, ["active-sheet role"])
+        finally:
+            db.close()
+            Base.metadata.drop_all(bind=engine)
+            engine.dispose()
+
+    async def test_failed_live_source_does_not_create_empty_report(self):
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool
+        )
+        Base.metadata.create_all(bind=engine)
+        db = sessionmaker(bind=engine)()
+        workspace = Workspace(
+            id="sync-failure-workspace",
+            name="Sync Failure Test",
+            slug="sync-failure-test",
+            timezone="Asia/Kolkata"
+        )
+        recruiter = RecruiterProfile(workspace_id=workspace.id, full_name="Live Recruiter")
+        db.add_all([workspace, recruiter])
+        db.flush()
+        source = DataSource(
+            workspace_id=workspace.id,
+            recruiter_id=recruiter.id,
+            source_type=SourceType.GOOGLE_SHEET,
+            name="Live Recruiter sheet",
+            sheet_id_or_url="sheet-id",
+            sync_status=SyncStatus.ACTIVE
+        )
+        db.add(source)
+        db.flush()
+        db.add_all([
+            ColumnMapping(
+                data_source_id=source.id,
+                standard_field=StandardField.ACTIVITY_DATE,
+                source_column_name="Date"
+            ),
+            ColumnMapping(
+                data_source_id=source.id,
+                standard_field=StandardField.CALL_STATUS,
+                source_column_name="Status"
+            )
+        ])
+        db.commit()
+
+        try:
+            with patch(
+                "app.services.sync_coordinator.GoogleSheetsWorker.fetch_sheet_dataframe",
+                new=AsyncMock(side_effect=PermissionError("Google Sheets access denied"))
+            ):
+                with self.assertRaisesRegex(RuntimeError, "report was not changed"):
+                    await SyncCoordinator.run_workspace_sync(
+                        workspace_id=workspace.id,
+                        db=db,
+                        override_date=date(2026, 11, 13),
+                        override_slot="12:00"
+                    )
+
+            self.assertEqual(
+                db.query(HourlyReport).filter_by(workspace_id=workspace.id).count(),
+                0
+            )
+            self.assertIn("access denied", source.last_error_message)
         finally:
             db.close()
             Base.metadata.drop_all(bind=engine)

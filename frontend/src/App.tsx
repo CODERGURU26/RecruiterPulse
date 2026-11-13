@@ -35,6 +35,33 @@ export function App() {
     void loadWorkspace();
   }, [loadWorkspace]);
 
+  useEffect(() => {
+    if (!workspace || activeTab === 'sources') return;
+
+    let disposed = false;
+    const refreshReport = async () => {
+      try {
+        const latestReport = activeTab === 'approval'
+          ? await api.getPendingReport(workspace.id)
+          : await api.getLatestApprovedReport(workspace.id);
+        if (!disposed) {
+          setLoadError(null);
+          setReport(latestReport);
+        }
+      } catch (error) {
+        if (!disposed) {
+          setLoadError(error instanceof Error ? error.message : 'Unable to refresh reports.');
+        }
+      }
+    };
+
+    const intervalId = window.setInterval(() => void refreshReport(), 60_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeTab, workspace]);
+
   const handleTabChange = async (tab: AppTab) => {
     setActiveTab(tab);
     if (!workspace || tab === 'sources') return;

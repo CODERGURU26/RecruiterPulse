@@ -23,7 +23,7 @@ class GoogleSheetsWorker:
     """
 
     SHEET_ID_REGEX = re.compile(r"/spreadsheets/d/([a-zA-Z0-9-_]+)")
-    GID_REGEX = re.compile(r"[#&]gid=([0-9]+)")
+    GID_REGEX = re.compile(r"[?&#]gid=([0-9]+)")
 
     @classmethod
     def extract_sheet_id(cls, url_or_id: str) -> Tuple[str, Optional[str]]:

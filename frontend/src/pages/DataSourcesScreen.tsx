@@ -58,6 +58,15 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
       .catch((err: Error) => setErrorMessage(`Could not load live sheets: ${err.message}`));
   }, [workspaceId]);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      api.getDataSources(workspaceId)
+        .then(setLiveSources)
+        .catch((err: Error) => setErrorMessage(`Could not refresh live sheets: ${err.message}`));
+    }, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, [workspaceId]);
+
   const handleCopyEmail = () => {
     if (!serviceAccountEmail) return;
     navigator.clipboard.writeText(serviceAccount);

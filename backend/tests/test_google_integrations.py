@@ -20,6 +20,11 @@ class TestGoogleIntegrations(unittest.TestCase):
         self.assertEqual(sid2, "2abcXYZ_12345-6789")
         self.assertEqual(gid2, "987654321")
 
+        _, query_gid = GoogleSheetsWorker.extract_sheet_id(
+            "https://docs.google.com/spreadsheets/d/query-only/edit?gid=1195049191"
+        )
+        self.assertEqual(query_gid, "1195049191")
+
         # Bare sheet ID
         sid3, gid3 = GoogleSheetsWorker.extract_sheet_id("bare_sheet_id_only_123")
         self.assertEqual(sid3, "bare_sheet_id_only_123")
@@ -129,4 +134,3 @@ class TestGoogleIntegrations(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

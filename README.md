@@ -10,7 +10,7 @@ RecruiterPulse imports recruiter call logs, calculates per-recruiter daily metri
 
 ## Import a recruiter workbook
 
-On **Spreadsheets & Mapping**, upload `.xlsx`, `.xls`, or `.csv`. Excel workbooks are scanned across tabs; tabs with recognizable call-status columns are processed. Recruiter names come from a detected recruiter column, the selected recruiter, or the worksheet name. If a date column is present, the newest valid date is used unless a date is explicitly supplied to the API.
+On **Spreadsheets & Mapping**, upload `.xlsx`, `.xls`, or `.csv`. Excel workbooks are scanned across tabs; tabs with recognizable call-status columns are processed. Recruiter names come from a detected recruiter column, the selected recruiter, or the worksheet name. The report defaults to the current date in the workspace timezone; callers can supply `target_date_str` to process a different day. Recruiters appear in the report only when they have at least one counted call for that date. Connected, not-connected, total calls, and roles are calculated from those dated rows, and subsequent master-sheet uploads remove recruiters who have no calls for that date.
 
 The report includes call counts, connection rate, active roles, and unmapped status values. Duplicate candidate/status rows are removed only when a candidate identifier is available. Candidate names and contact details are not included in report data. Interview counts are zero for file uploads because calendar events are not part of the uploaded workbook.
 

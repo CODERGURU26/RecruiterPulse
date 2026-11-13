@@ -169,20 +169,25 @@ class SyncCoordinator:
         connected_calls = 0
         not_connected_calls = 0
         total_interviews = 0
+        active_recruiters_count = 0
 
         for rec in recruiters:
             m_res = recruiter_metrics_map.get(rec.id)
-            conn = m_res.connected_calls if m_res else 0
-            not_conn = m_res.not_connected_calls if m_res else 0
-            tot = m_res.total_calls if m_res else 0
-            rate = m_res.connected_rate if m_res else 0.0
-            roles = m_res.job_roles if m_res else []
+            if not m_res or m_res.total_calls == 0:
+                continue
+
+            conn = m_res.connected_calls
+            not_conn = m_res.not_connected_calls
+            tot = m_res.total_calls
+            rate = m_res.connected_rate
+            roles = m_res.job_roles
             interviews = calendar_result.recruiter_interviews.get(rec.id, 0)
 
             total_calls += tot
             connected_calls += conn
             not_connected_calls += not_conn
             total_interviews += interviews
+            active_recruiters_count += 1
 
             metric_item = RecruiterDailyMetric(
                 hourly_report_id=report.id,
@@ -205,7 +210,7 @@ class SyncCoordinator:
             "not_connected_calls": not_connected_calls,
             "connected_rate": team_rate,
             "next_day_interviews": total_interviews + calendar_result.unassigned_count,
-            "active_recruiters_count": len(recruiters)
+            "active_recruiters_count": active_recruiters_count
         }
 
         # 8. Log Audit Event

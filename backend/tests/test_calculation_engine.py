@@ -136,6 +136,26 @@ class TestCalculationEngine(unittest.TestCase):
         self.assertIn("Network dropped midway", result.unmapped_statuses)
         self.assertEqual(result.total_calls, 2)
 
+    def test_blank_and_ignored_statuses_do_not_create_calls_or_roles(self):
+        df = pd.DataFrame({
+            "Date": ["12/11/2026", "12/11/2026", "12/11/2026"],
+            "Candidate": ["Candidate 1", "Candidate 2", "Candidate 3"],
+            "Status": ["Connected", "", "Do not call"],
+            "Role": ["Java", "Stale Role", "Ignored Role"]
+        })
+
+        result = CalculationEngine.calculate_recruiter_activity(
+            df=df,
+            column_mapping=self.column_mapping,
+            status_taxonomy=self.taxonomy,
+            target_date=self.target_date
+        )
+
+        self.assertEqual(result.connected_calls, 1)
+        self.assertEqual(result.not_connected_calls, 0)
+        self.assertEqual(result.total_calls, 1)
+        self.assertEqual(result.job_roles, ["Java"])
+
     def test_zero_pii_guarantee(self):
         """Strict DPDP Act verification: Candidate identities and phone numbers never leak into outputs."""
         df = pd.DataFrame({

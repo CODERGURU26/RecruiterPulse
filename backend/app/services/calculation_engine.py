@@ -115,7 +115,14 @@ class CalculationEngine:
                 total_rows_processed=total_input_rows
             )
 
-        # 2. Deduplication Safeguard
+        # 2. Keep only rows that actually contain a call status.
+        status_values = filtered_df[status_col].astype(str).str.strip().str.lower()
+        filtered_df = filtered_df[
+            filtered_df[status_col].notna()
+            & ~status_values.isin(("", "nan", "none", "-"))
+        ].copy()
+
+        # 3. Deduplication Safeguard
         initial_filtered_count = len(filtered_df)
         if candidate_col and candidate_col in filtered_df.columns:
             filtered_df = filtered_df.drop_duplicates(
@@ -125,23 +132,14 @@ class CalculationEngine:
         
         duplicates_removed = initial_filtered_count - len(filtered_df)
 
-        # 3. Job Roles Aggregation
-        active_roles: Set[str] = set()
-        if role_col and role_col in filtered_df.columns:
-            for r in filtered_df[role_col].dropna().unique():
-                role_str = str(r).strip()
-                if role_str and role_str.lower() not in ("nan", "none", "-"):
-                    active_roles.add(role_str)
-
         # 4. Status Classification & Metric Calculation
         connected_count = 0
         not_connected_count = 0
         unmapped_list: Set[str] = set()
+        counted_rows = []
 
-        for raw_val in filtered_df[status_col].dropna():
+        for row_index, raw_val in filtered_df[status_col].items():
             cleaned_status = str(raw_val).strip().lower()
-            if not cleaned_status or cleaned_status in ("nan", "none", "-"):
-                continue
 
             # Look up in taxonomy
             category = status_taxonomy.get(cleaned_status)
@@ -155,8 +153,10 @@ class CalculationEngine:
 
             if category == CallCategory.CONNECTED:
                 connected_count += 1
+                counted_rows.append(row_index)
             elif category == CallCategory.NOT_CONNECTED:
                 not_connected_count += 1
+                counted_rows.append(row_index)
             elif category == CallCategory.IGNORED:
                 pass  # Discard ignored rows (e.g. duplicate tags)
             else:
@@ -164,9 +164,18 @@ class CalculationEngine:
                 unmapped_list.add(str(raw_val).strip())
                 # Default to not connected attempt for safety until confirmed
                 not_connected_count += 1
+                counted_rows.append(row_index)
 
         total_calls = connected_count + not_connected_count
         connected_rate = round((connected_count / total_calls * 100), 2) if total_calls > 0 else 0.0
+
+        # Roles belong only to rows counted as actual calls.
+        active_roles: Set[str] = set()
+        if role_col and role_col in filtered_df.columns and counted_rows:
+            for role in filtered_df.loc[counted_rows, role_col].dropna().unique():
+                role_str = str(role).strip()
+                if role_str and role_str.lower() not in ("nan", "none", "-"):
+                    active_roles.add(role_str)
 
         # Note: Candidate names, phone numbers, and raw rows are NOT returned
         # and are naturally garbage-collected here (Zero PII stored)

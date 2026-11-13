@@ -143,6 +143,15 @@ async def process_real_file(
     if recruiter_name in ("__auto__", ""):
         recruiter_name = None
     process_all_recruiters = recruiter_name in (None, "Agency Master Sheet (All Recruiters)")
+    has_selected_recruiter_tab = (
+        recruiter_name is not None
+        and not process_all_recruiters
+        and len(parsed_sheets) > 1
+        and any(
+            (sheet_name or "").strip().casefold() == recruiter_name.strip().casefold()
+            for _, sheet_name in parsed_sheets
+        )
+    )
     canonical_names = {
         StandardField.ACTIVITY_DATE: "Activity Date",
         StandardField.CALL_STATUS: "Call Status",
@@ -178,17 +187,29 @@ async def process_real_file(
         if StandardField.CALL_STATUS not in sheet_mapping:
             continue
 
+        recruiter_source = sheet_mapping.get(StandardField.RECRUITER_NAME)
+        if (
+            not recruiter_source
+            and has_selected_recruiter_tab
+            and (sheet_name or "").strip().casefold() != recruiter_name.strip().casefold()
+        ):
+            continue
+
         if detections is None or sum(item["source_column"] is not None for item in sheet_detections.values()) > sum(
             item["source_column"] is not None for item in detections.values()
         ):
             detections = sheet_detections
         detected_sheet_names.append(sheet_name or "CSV")
 
-        recruiter_source = sheet_mapping.get(StandardField.RECRUITER_NAME)
         source_subset = source_df
-        if recruiter_source and not process_all_recruiters and recruiter_name:
-            recruiter_values = source_df[recruiter_source].astype(str).str.strip().str.casefold()
-            source_subset = source_df[recruiter_values == recruiter_name.strip().casefold()]
+        if recruiter_source and recruiter_source in source_df.columns:
+            source_df = source_df.copy()
+            source_df[recruiter_source] = source_df[recruiter_source].replace(
+                r"^\s*$", pd.NA, regex=True
+            ).ffill()
+            if not process_all_recruiters and recruiter_name:
+                recruiter_values = source_df[recruiter_source].astype(str).str.strip().str.casefold()
+                source_subset = source_df[recruiter_values == recruiter_name.strip().casefold()]
 
         normalized = pd.DataFrame(index=source_subset.index)
         for field, canonical_name in canonical_names.items():
@@ -221,7 +242,6 @@ async def process_real_file(
     }
 
     # 2. Date Column & Target Date Selection
-    date_col = col_mapping.get(StandardField.ACTIVITY_DATE)
     target_date: Optional[date] = None
 
     if target_date_str:
@@ -233,21 +253,15 @@ async def process_real_file(
                 detail="target_date_str must use YYYY-MM-DD format."
             ) from exc
 
-    if target_date is None and date_col and date_col in df.columns:
-        parsed_dates = CalculationEngine.parse_date_series(df[date_col]).dropna()
-        if not parsed_dates.empty:
-            target_date = parsed_dates.max().date()
-        else:
-            target_date = date.today()
-    elif target_date is None:
-        target_date = date.today()
-
     workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if not workspace:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Workspace '{workspace_id}' was not found. Run the backend seed script or provide a valid workspace ID."
         )
+
+    if target_date is None:
+        target_date = datetime.now(ZoneInfo(workspace.timezone)).date()
 
     # 3. Load Workspace Taxonomy
     taxonomies = db.query(StatusTaxonomy).filter(StatusTaxonomy.workspace_id == workspace_id).all()
@@ -295,6 +309,7 @@ async def process_real_file(
     processed_recruiters = []
     overall_calc_res = None
     all_unmapped = set()
+    active_recruiter_ids = set()
 
     if is_master_sheet:
         # Process each recruiter individually from the master sheet
@@ -304,10 +319,29 @@ async def process_real_file(
             if not clean_name or clean_name.lower() in ("nan", "none", "-", "total"):
                 continue
 
+            calc_res = CalculationEngine.calculate_recruiter_activity(
+                df=group_df,
+                column_mapping=col_mapping,
+                status_taxonomy=taxonomy_lookup,
+                target_date=target_date
+            )
+            all_unmapped.update(calc_res.unmapped_statuses)
+
             recruiter = db.query(RecruiterProfile).filter(
                 RecruiterProfile.workspace_id == workspace_id,
                 RecruiterProfile.full_name == clean_name
             ).first()
+
+            if calc_res.total_calls == 0:
+                if recruiter:
+                    old_metric = db.query(RecruiterDailyMetric).filter(
+                        RecruiterDailyMetric.hourly_report_id == report.id,
+                        RecruiterDailyMetric.recruiter_id == recruiter.id
+                    ).first()
+                    if old_metric:
+                        db.delete(old_metric)
+                continue
+
             if not recruiter:
                 recruiter = RecruiterProfile(
                     workspace_id=workspace_id,
@@ -316,14 +350,6 @@ async def process_real_file(
                 )
                 db.add(recruiter)
                 db.flush()
-
-            calc_res = CalculationEngine.calculate_recruiter_activity(
-                df=group_df,
-                column_mapping=col_mapping,
-                status_taxonomy=taxonomy_lookup,
-                target_date=target_date
-            )
-            all_unmapped.update(calc_res.unmapped_statuses)
 
             metric = db.query(RecruiterDailyMetric).filter(
                 RecruiterDailyMetric.hourly_report_id == report.id,
@@ -342,6 +368,7 @@ async def process_real_file(
             metric.total_calls = calc_res.total_calls
             metric.connected_rate = calc_res.connected_rate
             metric.next_day_interviews = 0
+            active_recruiter_ids.add(recruiter.id)
 
             processed_recruiters.append({
                 "name": clean_name,
@@ -350,6 +377,12 @@ async def process_real_file(
                 "connected_rate": calc_res.connected_rate,
                 "job_roles": calc_res.job_roles
             })
+
+        for old_metric in db.query(RecruiterDailyMetric).filter(
+            RecruiterDailyMetric.hourly_report_id == report.id
+        ).all():
+            if old_metric.recruiter_id not in active_recruiter_ids:
+                db.delete(old_metric)
 
         # Include recruiter identity in the dedupe key when calculating team totals.
         overall_df = df.copy()
@@ -380,15 +413,6 @@ async def process_real_file(
             RecruiterProfile.full_name == name_to_use
         ).first()
 
-        if not recruiter:
-            recruiter = RecruiterProfile(
-                workspace_id=workspace_id,
-                full_name=name_to_use,
-                is_active=True
-            )
-            db.add(recruiter)
-            db.flush()
-
         overall_calc_res = CalculationEngine.calculate_recruiter_activity(
             df=df,
             column_mapping=col_mapping,
@@ -397,38 +421,49 @@ async def process_real_file(
         )
         all_unmapped.update(overall_calc_res.unmapped_statuses)
 
-        metric = db.query(RecruiterDailyMetric).filter(
-            RecruiterDailyMetric.hourly_report_id == report.id,
-            RecruiterDailyMetric.recruiter_id == recruiter.id
-        ).first()
+        if overall_calc_res.total_calls > 0:
+            if not recruiter:
+                recruiter = RecruiterProfile(
+                    workspace_id=workspace_id,
+                    full_name=name_to_use,
+                    is_active=True
+                )
+                db.add(recruiter)
+                db.flush()
 
-        if not metric:
-            metric = RecruiterDailyMetric(
-                hourly_report_id=report.id,
-                recruiter_id=recruiter.id
-            )
-            db.add(metric)
+            metric = db.query(RecruiterDailyMetric).filter(
+                RecruiterDailyMetric.hourly_report_id == report.id,
+                RecruiterDailyMetric.recruiter_id == recruiter.id
+            ).first()
 
-        metric.job_roles = overall_calc_res.job_roles
-        metric.connected_calls = overall_calc_res.connected_calls
-        metric.not_connected_calls = overall_calc_res.not_connected_calls
-        metric.total_calls = overall_calc_res.total_calls
-        metric.connected_rate = overall_calc_res.connected_rate
-        metric.next_day_interviews = 0
+            if not metric:
+                metric = RecruiterDailyMetric(
+                    hourly_report_id=report.id,
+                    recruiter_id=recruiter.id
+                )
+                db.add(metric)
 
-        processed_recruiters.append({
-            "name": recruiter.full_name,
-            "total_calls": overall_calc_res.total_calls,
-            "connected_calls": overall_calc_res.connected_calls,
-            "connected_rate": overall_calc_res.connected_rate,
-            "job_roles": overall_calc_res.job_roles
-        })
+            metric.job_roles = overall_calc_res.job_roles
+            metric.connected_calls = overall_calc_res.connected_calls
+            metric.not_connected_calls = overall_calc_res.not_connected_calls
+            metric.total_calls = overall_calc_res.total_calls
+            metric.connected_rate = overall_calc_res.connected_rate
+            metric.next_day_interviews = 0
 
-    if not processed_recruiters:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No recruiter rows were found for the selected recruiter and reporting date."
-        )
+            processed_recruiters.append({
+                "name": recruiter.full_name,
+                "total_calls": overall_calc_res.total_calls,
+                "connected_calls": overall_calc_res.connected_calls,
+                "connected_rate": overall_calc_res.connected_rate,
+                "job_roles": overall_calc_res.job_roles
+            })
+        elif recruiter:
+            old_metric = db.query(RecruiterDailyMetric).filter(
+                RecruiterDailyMetric.hourly_report_id == report.id,
+                RecruiterDailyMetric.recruiter_id == recruiter.id
+            ).first()
+            if old_metric:
+                db.delete(old_metric)
 
     # Recalculate summary totals across all metrics in this report
     db.flush()
@@ -467,7 +502,9 @@ async def process_real_file(
         "status": "success",
         "filename": filename,
         "sheet_name": detected_sheet,
-        "recruiter_name": "Multiple Recruiters" if is_master_sheet else processed_recruiters[0]["name"],
+        "recruiter_name": "Multiple Recruiters" if is_master_sheet else (
+            processed_recruiters[0]["name"] if processed_recruiters else name_to_use
+        ),
         "is_master_sheet": is_master_sheet,
         "recruiters_processed": processed_recruiters,
         "reporting_date": str(target_date),

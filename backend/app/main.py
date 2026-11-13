@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,10 +10,14 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.database import Base, engine, SessionLocal
 from app.api.v1.router import api_router
+from app.models import DataSource, SyncStatus, Workspace
+from app.services.sync_coordinator import SyncCoordinator
 from app.services.workspace_bootstrap import ensure_default_workspace
 
 # Create tables on startup
 Base.metadata.create_all(bind=engine)
+logger = logging.getLogger(__name__)
+sheet_sync_task: asyncio.Task | None = None
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -43,8 +49,41 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 
+async def sync_registered_workspaces():
+    while True:
+        db = SessionLocal()
+        try:
+            workspace_ids = [
+                workspace_id
+                for (workspace_id,) in db.query(Workspace.id).join(
+                    DataSource,
+                    DataSource.workspace_id == Workspace.id
+                ).filter(
+                    DataSource.sync_status == SyncStatus.ACTIVE
+                ).distinct().all()
+            ]
+        except Exception:
+            logger.exception("Unable to find workspaces with active Google Sheets.")
+            workspace_ids = []
+        finally:
+            db.close()
+
+        for workspace_id in workspace_ids:
+            db = SessionLocal()
+            try:
+                await SyncCoordinator.run_workspace_sync(workspace_id, db)
+            except Exception:
+                logger.exception("Scheduled Google Sheets sync failed for workspace %s.", workspace_id)
+                db.rollback()
+            finally:
+                db.close()
+
+        await asyncio.sleep(settings.GOOGLE_SHEETS_SYNC_INTERVAL_MINUTES * 60)
+
+
 @app.on_event("startup")
-def provision_default_workspace():
+async def provision_default_workspace():
+    global sheet_sync_task
     db = SessionLocal()
     try:
         ensure_default_workspace(db)
@@ -54,6 +93,19 @@ def provision_default_workspace():
         raise
     finally:
         db.close()
+    if settings.GOOGLE_SHEETS_SYNC_INTERVAL_MINUTES < 1:
+        raise ValueError("GOOGLE_SHEETS_SYNC_INTERVAL_MINUTES must be at least 1.")
+    sheet_sync_task = asyncio.create_task(sync_registered_workspaces())
+
+
+@app.on_event("shutdown")
+async def stop_scheduled_sheet_sync():
+    if sheet_sync_task:
+        sheet_sync_task.cancel()
+        try:
+            await sheet_sync_task
+        except asyncio.CancelledError:
+            pass
 
 
 @app.get("/health", tags=["Health"])

@@ -37,7 +37,7 @@ class TestWorkspaceBootstrap(unittest.TestCase):
             self.assertEqual(db.query(Workspace).count(), 2)
             self.assertEqual(
                 db.query(StatusTaxonomy).filter_by(workspace_id="ws-apex-101").count(),
-                23
+                24
             )
             self.assertEqual(
                 db.query(RecruiterProfile).filter_by(workspace_id="ws-apex-101").count(),

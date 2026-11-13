@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from typing import Dict, List, Any, Optional, Set, Tuple
+import re
 import pandas as pd
 from app.models.enums import StandardField, CallCategory
 
@@ -137,17 +138,26 @@ class CalculationEngine:
         not_connected_count = 0
         unmapped_list: Set[str] = set()
         counted_rows = []
+        ordered_taxonomy = sorted(
+            status_taxonomy.items(),
+            key=lambda item: len(item[0].strip()),
+            reverse=True
+        )
 
         for row_index, raw_val in filtered_df[status_col].items():
             cleaned_status = str(raw_val).strip().lower()
 
             # Look up in taxonomy
             category = status_taxonomy.get(cleaned_status)
-            
-            # Substring fallback if not exact
+
+            if category is None and re.search(r"\bnot\s+connected\b", cleaned_status):
+                category = status_taxonomy.get("not connected", CallCategory.NOT_CONNECTED)
+
+            # Prefer the most specific taxonomy phrase and don't match inside other words.
             if category is None:
-                for taxonomy_term, cat in status_taxonomy.items():
-                    if taxonomy_term in cleaned_status:
+                for taxonomy_term, cat in ordered_taxonomy:
+                    term = taxonomy_term.strip().lower()
+                    if term and re.search(rf"(?<!\w){re.escape(term)}(?!\w)", cleaned_status):
                         category = cat
                         break
 

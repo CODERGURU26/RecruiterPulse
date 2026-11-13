@@ -156,6 +156,31 @@ class TestCalculationEngine(unittest.TestCase):
         self.assertEqual(result.total_calls, 1)
         self.assertEqual(result.job_roles, ["Java"])
 
+    def test_not_connected_is_not_misclassified_by_connected_substring(self):
+        df = pd.DataFrame({
+            "Date": ["12/11/2026"] * 4,
+            "Candidate": ["C1", "C2", "C3", "C4"],
+            "Status": [
+                "Connected",
+                "Not Connected",
+                "Not Connected - Busy",
+                "Disconnected"
+            ],
+            "Role": ["Java", "Java", "QA", "DevOps"]
+        })
+
+        result = CalculationEngine.calculate_recruiter_activity(
+            df=df,
+            column_mapping=self.column_mapping,
+            status_taxonomy=self.taxonomy,
+            target_date=self.target_date
+        )
+
+        self.assertEqual(result.connected_calls, 1)
+        self.assertEqual(result.not_connected_calls, 3)
+        self.assertEqual(result.total_calls, 4)
+        self.assertEqual(result.unmapped_statuses, ["Disconnected"])
+
     def test_zero_pii_guarantee(self):
         """Strict DPDP Act verification: Candidate identities and phone numbers never leak into outputs."""
         df = pd.DataFrame({

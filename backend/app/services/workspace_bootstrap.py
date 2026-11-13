@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import (
     DEFAULT_INDIAN_TAXONOMY_PRESETS,
     RecruiterProfile,
@@ -23,10 +24,12 @@ def ensure_default_workspace(db: Session) -> Workspace:
             name="Apex Staffing Solutions",
             slug="apex-staffing",
             timezone="Asia/Kolkata",
-            service_account_email="sync@recruiterpulse.iam.gserviceaccount.com"
+            service_account_email=settings.GOOGLE_SERVICE_ACCOUNT_EMAIL
         )
         db.add(workspace)
         db.flush()
+    else:
+        workspace.service_account_email = settings.GOOGLE_SERVICE_ACCOUNT_EMAIL
 
     for raw_status, category in DEFAULT_INDIAN_TAXONOMY_PRESETS:
         existing_taxonomy = db.query(StatusTaxonomy).filter(

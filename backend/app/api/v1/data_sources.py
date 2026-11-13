@@ -17,6 +17,7 @@ from app.models import (
     HourlyReport,
     RecruiterDailyMetric,
     ReportStatus,
+    SourceType,
     SyncStatus,
     StandardField,
     AuditLog,
@@ -25,6 +26,7 @@ from app.models import (
 from app.schemas.data_source import (
     DataSourceCreate,
     DataSourceResponse,
+    RegisterGoogleSheetRequest,
     ColumnDetectionResponse,
     ColumnMappingItem,
     ConfirmMappingRequest,
@@ -552,6 +554,136 @@ def confirm_mappings(payload: ConfirmMappingRequest, db: Session = Depends(get_d
     db.commit()
 
     return {"message": "Column mappings confirmed successfully.", "status": ds.sync_status}
+
+
+@router.get("/{workspace_id}", response_model=List[DataSourceResponse])
+def list_data_sources(workspace_id: str, db: Session = Depends(get_db)):
+    """Lists the workspace's registered sheet sources and their sync status."""
+    return db.query(DataSource).filter(
+        DataSource.workspace_id == workspace_id
+    ).order_by(DataSource.created_at.desc()).all()
+
+
+@router.post(
+    "/{workspace_id}/google-sheet",
+    response_model=DataSourceResponse,
+    status_code=status.HTTP_201_CREATED
+)
+async def register_google_sheet(
+    workspace_id: str,
+    payload: RegisterGoogleSheetRequest,
+    db: Session = Depends(get_db)
+):
+    """Registers one explicit recruiter tab for recurring Google Sheets sync."""
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
+
+    recruiter_name = payload.recruiter_name.strip()
+    if not recruiter_name or recruiter_name.casefold() in {"naukri", "internshala"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter an actual recruiter name; Naukri and Internshala are job-source tabs, not recruiters."
+        )
+
+    parsed_url = urlparse(payload.sheet_url)
+    if parsed_url.scheme != "https" or parsed_url.hostname not in ("docs.google.com", "www.docs.google.com"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide an HTTPS URL from docs.google.com."
+        )
+
+    _, gid = GoogleSheetsWorker.extract_sheet_id(payload.sheet_url)
+    if not gid and not payload.sheet_tab_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Select the recruiter tab in Google Sheets and paste its URL containing gid=..., or provide the exact tab name."
+        )
+
+    try:
+        dataframe = await GoogleSheetsWorker.fetch_sheet_dataframe(
+            payload.sheet_url,
+            tab_name=payload.sheet_tab_name
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unable to read the selected Google Sheets tab: {exc}"
+        ) from exc
+
+    detections = ColumnDetector.analyze_dataframe(dataframe)
+    mappings = {
+        field: item["source_column"]
+        for field, item in detections.items()
+        if item["source_column"] is not None
+    }
+    if StandardField.CALL_STATUS not in mappings or StandardField.ACTIVITY_DATE not in mappings:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The selected tab must have detectable call-status and activity-date columns before live sync can be enabled."
+        )
+
+    recruiter = db.query(RecruiterProfile).filter(
+        RecruiterProfile.workspace_id == workspace_id,
+        RecruiterProfile.full_name.ilike(recruiter_name)
+    ).first()
+    if not recruiter:
+        recruiter = RecruiterProfile(
+            workspace_id=workspace_id,
+            full_name=recruiter_name,
+            is_active=True
+        )
+        db.add(recruiter)
+        db.flush()
+
+    data_source = db.query(DataSource).filter(
+        DataSource.workspace_id == workspace_id,
+        DataSource.recruiter_id == recruiter.id,
+        DataSource.source_type == SourceType.GOOGLE_SHEET
+    ).first()
+    if not data_source:
+        data_source = DataSource(
+            workspace_id=workspace_id,
+            recruiter_id=recruiter.id,
+            source_type=SourceType.GOOGLE_SHEET,
+            name=f"{recruiter_name} live sheet",
+            sheet_id_or_url=payload.sheet_url,
+            sheet_tab_name=payload.sheet_tab_name,
+            sync_status=SyncStatus.ACTIVE
+        )
+        db.add(data_source)
+        db.flush()
+    else:
+        data_source.name = f"{recruiter_name} live sheet"
+        data_source.sheet_id_or_url = payload.sheet_url
+        data_source.sheet_tab_name = payload.sheet_tab_name
+        data_source.sync_status = SyncStatus.ACTIVE
+        data_source.last_error_message = None
+
+    db.query(ColumnMapping).filter(
+        ColumnMapping.data_source_id == data_source.id
+    ).delete()
+    for field, source_column in mappings.items():
+        db.add(ColumnMapping(
+            data_source_id=data_source.id,
+            standard_field=field,
+            source_column_name=source_column,
+            confidence_score=detections[field]["confidence"],
+            is_confirmed=True
+        ))
+
+    db.add(AuditLog(
+        workspace_id=workspace_id,
+        action=AuditAction.DATA_SOURCE_CONNECTED,
+        details={
+            "data_source_id": data_source.id,
+            "recruiter": recruiter_name,
+            "tab_gid": gid
+        }
+    ))
+    db.commit()
+    db.refresh(data_source)
+    return data_source
 
 
 @router.post("/{workspace_id}", response_model=DataSourceResponse, status_code=status.HTTP_201_CREATED)

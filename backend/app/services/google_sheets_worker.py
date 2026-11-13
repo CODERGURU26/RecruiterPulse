@@ -44,6 +44,7 @@ class GoogleSheetsWorker:
         cls,
         spreadsheet_id: str,
         tab_name: Optional[str] = None,
+        gid: Optional[str] = None,
         key_path: Optional[str] = None
     ) -> pd.DataFrame:
         """
@@ -60,7 +61,27 @@ class GoogleSheetsWorker:
         creds = service_account.Credentials.from_service_account_file(key_file, scopes=scopes)
         service = build("sheets", "v4", credentials=creds)
 
-        range_to_fetch = f"'{tab_name}'!A1:ZZ" if tab_name else "A1:ZZ"
+        if not tab_name and gid:
+            metadata = service.spreadsheets().get(
+                spreadsheetId=spreadsheet_id,
+                fields="sheets.properties(sheetId,title)"
+            ).execute()
+            tab_name = next(
+                (
+                    sheet["properties"]["title"]
+                    for sheet in metadata.get("sheets", [])
+                    if str(sheet["properties"]["sheetId"]) == gid
+                ),
+                None
+            )
+            if not tab_name:
+                raise ValueError(f"Google Sheets tab gid '{gid}' was not found.")
+
+        if not tab_name:
+            raise ValueError("Select a Google Sheets tab by name or gid before syncing.")
+
+        escaped_tab_name = tab_name.replace("'", "''")
+        range_to_fetch = f"'{escaped_tab_name}'!A1:ZZ"
         result = service.spreadsheets().values().get(
             spreadsheetId=spreadsheet_id,
             range=range_to_fetch
@@ -86,16 +107,27 @@ class GoogleSheetsWorker:
         Fast HTTPS ingestion: Reads shared/viewer Google Sheet directly as CSV.
         Requires Viewer access granted to service account or link-sharing.
         """
-        export_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv"
-        if gid:
-            export_url += f"&gid={gid}"
+        if not gid:
+            raise ValueError("The Google Sheets URL must select a tab with ?gid=... before importing.")
+
+        export_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=csv&gid={gid}"
 
         async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
             resp = await client.get(export_url)
             if resp.status_code != 200:
+                if settings.GOOGLE_SERVICE_ACCOUNT_EMAIL:
+                    access_hint = (
+                        f"Share the sheet with '{settings.GOOGLE_SERVICE_ACCOUNT_EMAIL}' "
+                        "with Viewer access and configure its key on the backend."
+                    )
+                else:
+                    access_hint = (
+                        "Configure a Google service-account key and share the sheet with that "
+                        "account with Viewer access."
+                    )
                 raise ValueError(
                     f"Unable to access Google Sheet (HTTP {resp.status_code}). "
-                    f"Ensure sheet is shared with '{settings.GOOGLE_SERVICE_ACCOUNT_EMAIL}' with Viewer access."
+                    f"{access_hint}"
                 )
 
             csv_text = resp.text
@@ -112,13 +144,14 @@ class GoogleSheetsWorker:
         """
         sheet_id, gid = cls.extract_sheet_id(url_or_id)
 
-        # 1. Try official Service Account API if credentials configured
-        if settings.GOOGLE_SERVICE_ACCOUNT_KEY_PATH and os.path.exists(settings.GOOGLE_SERVICE_ACCOUNT_KEY_PATH):
-            try:
-                return cls.fetch_via_service_account(sheet_id, tab_name=tab_name)
-            except Exception as e:
-                pass  # Fall through to web export
+        # Use private service-account access when configured; never silently fall
+        # back to an arbitrary first tab or public access after an auth failure.
+        if settings.GOOGLE_SERVICE_ACCOUNT_KEY_PATH:
+            return cls.fetch_via_service_account(
+                sheet_id,
+                tab_name=tab_name,
+                gid=gid
+            )
 
-        # 2. Ingest via direct export endpoint
+        # Public viewer links can only be read when the URL selects an exact tab.
         return await cls.fetch_via_web_export(sheet_id, gid=gid)
-

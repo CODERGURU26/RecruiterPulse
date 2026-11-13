@@ -17,7 +17,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { api } from '../services/api';
-import { Recruiter } from '../types';
+import { LiveDataSource, Recruiter } from '../types';
 
 interface DataSourcesScreenProps {
   workspaceId: string;
@@ -35,8 +35,12 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
 }) => {
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [sheetUrl, setSheetUrl] = useState('');
+  const [liveRecruiterName, setLiveRecruiterName] = useState('');
   const [selectedRecruiter, setSelectedRecruiter] = useState(AUTO_DETECT_RECRUITERS);
   const [recruiters, setRecruiters] = useState<Recruiter[]>([]);
+  const [liveSources, setLiveSources] = useState<LiveDataSource[]>([]);
+  const [isRegisteringLiveSheet, setIsRegisteringLiveSheet] = useState(false);
+  const [liveSyncMessage, setLiveSyncMessage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<any | null>(null);
@@ -49,6 +53,9 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
     api.getRecruiters(workspaceId)
       .then(setRecruiters)
       .catch((err: Error) => setErrorMessage(`Could not load recruiter roster: ${err.message}`));
+    api.getDataSources(workspaceId)
+      .then(setLiveSources)
+      .catch((err: Error) => setErrorMessage(`Could not load live sheets: ${err.message}`));
   }, [workspaceId]);
 
   const handleCopyEmail = () => {
@@ -84,13 +91,52 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
       const result = await api.processGoogleSheet(
         sheetUrl.trim(),
         workspaceId,
-        selectedRecruiter === AUTO_DETECT_RECRUITERS ? undefined : selectedRecruiter
+        selectedRecruiter === AUTO_DETECT_RECRUITERS
+          ? liveRecruiterName.trim() || undefined
+          : selectedRecruiter
       );
       setUploadResult(result);
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to read Google Sheet.');
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleRegisterLiveSheet = async () => {
+    setErrorMessage(null);
+    setLiveSyncMessage(null);
+    if (!liveRecruiterName.trim()) {
+      setErrorMessage('Enter the recruiter who owns the selected call-log tab.');
+      return;
+    }
+
+    setIsRegisteringLiveSheet(true);
+    try {
+      const source = await api.registerGoogleSheet(
+        workspaceId,
+        liveRecruiterName.trim(),
+        sheetUrl.trim()
+      );
+      const report = await api.triggerSync(workspaceId);
+      setLiveSources(await api.getDataSources(workspaceId));
+      setLiveSyncMessage(
+        `${source.name} is registered. Initial sync found ${report.summary_totals.total_calls} calls; sheets refresh every 15 minutes.`
+      );
+      onNavigateToApproval?.();
+    } catch (err) {
+      let message = err instanceof Error
+        ? `Live sheet setup/sync failed: ${err.message}`
+        : 'Live sheet setup/sync failed.';
+      try {
+        setLiveSources(await api.getDataSources(workspaceId));
+      } catch (refreshError) {
+        const detail = refreshError instanceof Error ? refreshError.message : 'unknown error';
+        message += ` Also could not refresh the source list: ${detail}`;
+      }
+      setErrorMessage(message);
+    } finally {
+      setIsRegisteringLiveSheet(false);
     }
   };
 
@@ -137,7 +183,7 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
             </span>
             <h2 className="text-xl font-bold tracking-tight">Share private sheets with the configured service account</h2>
             <p className="text-xs text-indigo-200 max-w-2xl">
-              Public sheets can be imported directly. For private sheets, share with this service account if credentials are configured on the backend:
+              For private sheets, share with this service account after its credentials are configured on the backend:
             </p>
           </div>
 
@@ -207,6 +253,34 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
             >
               {isUploading ? 'Analyzing sheet...' : 'Analyze Google Sheet'}
             </button>
+
+            <div className="border-t border-slate-100 pt-4 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Recruiter owning this tab
+                </label>
+                <input
+                  type="text"
+                  value={liveRecruiterName}
+                  onChange={(e) => setLiveRecruiterName(e.target.value)}
+                  placeholder="For example, Tanmay"
+                  className="w-full p-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                />
+              </div>
+              <p className="text-xs text-slate-500">
+                Select the recruiter&apos;s call-log tab before copying its URL; it must contain a gid. Do not register Naukri, Internshala, or daily-summary tabs as recruiters.
+              </p>
+              <button
+                onClick={() => void handleRegisterLiveSheet()}
+                disabled={!sheetUrl.trim() || !liveRecruiterName.trim() || isRegisteringLiveSheet}
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
+              >
+                {isRegisteringLiveSheet ? 'Registering and syncing...' : 'Enable 15-minute live sync'}
+              </button>
+              {liveSyncMessage && (
+                <p role="status" className="text-xs font-semibold text-emerald-700">{liveSyncMessage}</p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -273,6 +347,29 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
           </div>
         </div>
       </div>
+
+      {liveSources.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Registered live recruiter sheets</h2>
+            <p className="text-xs text-slate-500 mt-1">The backend refreshes these tabs every 15 minutes while it is running.</p>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {liveSources.map((source) => (
+              <div key={source.id} className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
+                <span className="font-semibold text-slate-800">{source.name}</span>
+                <span className={source.last_error_message ? 'text-rose-600 text-xs' : 'text-slate-500 text-xs'}>
+                  {source.last_error_message
+                    ? `Sync error: ${source.last_error_message}`
+                    : source.last_synced_at
+                      ? `Last synced ${new Date(source.last_synced_at).toLocaleString()}`
+                      : source.sync_status}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Uploaded File Processing Results Banner */}
       {uploadResult && (

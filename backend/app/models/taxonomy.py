@@ -49,6 +49,7 @@ DEFAULT_INDIAN_TAXONOMY_PRESETS = [
     ("call back requested", CallCategory.CONNECTED),
     ("already placed", CallCategory.CONNECTED),
     ("not interested", CallCategory.CONNECTED),  # Spoke to candidate, outcome recorded
+    ("not connected", CallCategory.NOT_CONNECTED),
     # Not Connected (Unproductive)
     ("rnr", CallCategory.NOT_CONNECTED),
     ("ringing no response", CallCategory.NOT_CONNECTED),
@@ -64,4 +65,3 @@ DEFAULT_INDIAN_TAXONOMY_PRESETS = [
     ("duplicate", CallCategory.IGNORED),
     ("do not call", CallCategory.IGNORED),
 ]
-

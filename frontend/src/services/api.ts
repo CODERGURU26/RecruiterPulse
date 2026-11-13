@@ -1,4 +1,4 @@
-import { HourlyReport, Recruiter, Workspace } from '../types';
+import { HourlyReport, LiveDataSource, Recruiter, Workspace } from '../types';
 
 const API_BASE = '/api/v1';
 export const DEFAULT_WORKSPACE_ID = 'ws-apex-101';
@@ -24,6 +24,22 @@ export const api = {
 
   getRecruiters(workspaceId = DEFAULT_WORKSPACE_ID): Promise<Recruiter[]> {
     return request(`${API_BASE}/workspaces/${workspaceId}/recruiters`);
+  },
+
+  getDataSources(workspaceId: string): Promise<LiveDataSource[]> {
+    return request(`${API_BASE}/data-sources/${workspaceId}`);
+  },
+
+  registerGoogleSheet(
+    workspaceId: string,
+    recruiterName: string,
+    sheetUrl: string
+  ): Promise<LiveDataSource> {
+    return request(`${API_BASE}/data-sources/${workspaceId}/google-sheet`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recruiter_name: recruiterName, sheet_url: sheetUrl })
+    });
   },
 
   getPendingReport(workspaceId = DEFAULT_WORKSPACE_ID): Promise<HourlyReport | null> {

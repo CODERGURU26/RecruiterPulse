@@ -22,6 +22,12 @@ class ConfirmMappingRequest(BaseModel):
     mappings: Dict[StandardField, str]  # standard_field -> confirmed source_column_name
 
 
+class RegisterGoogleSheetRequest(BaseModel):
+    recruiter_name: str
+    sheet_url: str
+    sheet_tab_name: Optional[str] = None
+
+
 class DataSourceCreate(BaseModel):
     recruiter_id: Optional[str] = None
     source_type: SourceType = SourceType.GOOGLE_SHEET
@@ -44,4 +50,3 @@ class DataSourceResponse(BaseModel):
 
     class Config:
         from_attributes = True
-

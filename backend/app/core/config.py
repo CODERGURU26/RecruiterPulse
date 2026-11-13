@@ -18,8 +18,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
     # Google Service Account
-    GOOGLE_SERVICE_ACCOUNT_EMAIL: Optional[str] = "sync@recruiterpulse.iam.gserviceaccount.com"
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: Optional[str] = None
     GOOGLE_SERVICE_ACCOUNT_KEY_PATH: Optional[str] = None
+    GOOGLE_SHEETS_SYNC_INTERVAL_MINUTES: int = 15
 
     # Timezone
     DEFAULT_TIMEZONE: str = "Asia/Kolkata"
@@ -33,4 +34,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

@@ -46,6 +46,16 @@ export interface Recruiter {
   is_active: boolean;
 }
 
+export interface LiveDataSource {
+  id: string;
+  workspace_id: string;
+  recruiter_id: string | null;
+  name: string;
+  sync_status: 'ACTIVE' | 'PENDING_MAPPING' | 'ERROR' | 'PAUSED';
+  last_synced_at: string | null;
+  last_error_message: string | null;
+}
+
 export interface ColumnMappingItem {
   standard_field: string;
   source_column: string | null;

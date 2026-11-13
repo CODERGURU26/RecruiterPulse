@@ -13,6 +13,7 @@ from app.models import (
     HourlyReport,
     RecruiterDailyMetric,
     ReportStatus,
+    SyncStatus,
     AuditLog,
     AuditAction,
     StandardField,
@@ -85,19 +86,33 @@ class SyncCoordinator:
             t.raw_status.lower().strip(): t.category for t in taxonomies
         }
 
-        # 3. Process calling metrics per recruiter
+        # 3. Process only explicitly registered, active recruiter sheets.
         recruiter_metrics_map: Dict[str, RecruiterMetricsResult] = {}
+        active_sources = db.query(DataSource).filter(
+            DataSource.workspace_id == workspace.id,
+            DataSource.sync_status == SyncStatus.ACTIVE
+        ).all()
+        if not active_sources:
+            raise ValueError("No active Google Sheets are registered for live sync.")
+
+        sources_by_recruiter: Dict[str, List[DataSource]] = {}
+        for data_source in active_sources:
+            if not data_source.recruiter_id:
+                raise ValueError(
+                    f"Active data source '{data_source.name}' must be assigned to a recruiter before syncing."
+                )
+            sources_by_recruiter.setdefault(data_source.recruiter_id, []).append(data_source)
+
+        sync_errors: List[str] = []
 
         for rec in recruiters:
-            # Find data source for this recruiter
-            ds = db.query(DataSource).filter(
-                DataSource.workspace_id == workspace.id,
-                DataSource.recruiter_id == rec.id,
-                DataSource.sync_status != "PAUSED"
-            ).first()
-
-            if not ds:
+            recruiter_sources = sources_by_recruiter.get(rec.id, [])
+            if not recruiter_sources:
                 continue
+            if len(recruiter_sources) > 1:
+                sync_errors.append(f"{rec.full_name}: multiple active sheets are registered")
+                continue
+            ds = recruiter_sources[0]
 
             # Load column mappings
             mappings = db.query(ColumnMapping).filter(ColumnMapping.data_source_id == ds.id).all()
@@ -119,6 +134,16 @@ class SyncCoordinator:
                 ds.last_error_message = None
             except Exception as e:
                 ds.last_error_message = str(e)
+                sync_errors.append(f"{rec.full_name}: {e}")
+
+        if sync_errors:
+            db.commit()
+            raise RuntimeError(
+                "Live sync aborted; the report was not changed. " + "; ".join(sync_errors)
+            )
+
+        if not recruiter_metrics_map:
+            raise ValueError("No active recruiter sheets were available to sync.")
 
         # 4. Process Google Calendar (Tomorrow's Interviews)
         # Calculates T+1 window

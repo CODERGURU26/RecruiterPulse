@@ -12,7 +12,16 @@ from unittest.mock import AsyncMock, patch
 
 from app.core.database import Base, get_db
 from app.main import app
-from app.models import CallCategory, StatusTaxonomy, Workspace
+from app.models import (
+    CallCategory,
+    ColumnMapping,
+    DataSource,
+    RecruiterProfile,
+    StandardField,
+    StatusTaxonomy,
+    SyncStatus,
+    Workspace,
+)
 
 
 class TestRealFileProcessing(unittest.IsolatedAsyncioTestCase):
@@ -206,7 +215,7 @@ class TestRealFileProcessing(unittest.IsolatedAsyncioTestCase):
                         "workspace_id": workspace_id,
                         "target_date_str": "2026-11-13",
                         "recruiter_name": "Nina Shah",
-                        "google_sheet_url": "https://docs.google.com/spreadsheets/d/example/edit"
+                        "google_sheet_url": "https://docs.google.com/spreadsheets/d/example/edit?gid=123"
                     }
                 )
 
@@ -257,3 +266,65 @@ class TestRealFileProcessing(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["reporting_date"], workspace_today.isoformat())
         self.assertEqual(response.json()["metrics"]["total_calls"], 1)
         self.assertEqual(response.json()["metrics"]["job_roles"], ["Current Role"])
+
+    async def test_live_sheet_registration_saves_explicit_tab_and_rejects_job_source(self):
+        db = self.session_factory()
+        workspace = Workspace(
+            id="live-sheet-test-workspace",
+            name="Live Sheet Test",
+            slug="live-sheet-test",
+            timezone="Asia/Kolkata"
+        )
+        db.add(workspace)
+        db.commit()
+        workspace_id = workspace.id
+        db.close()
+
+        sheet_url = "https://docs.google.com/spreadsheets/d/example/edit?gid=123"
+        sheet_dataframe = pd.DataFrame({
+            "Activity Date": ["13/11/2026"],
+            "Call Status": ["Connected"],
+            "Job Role": ["QA Engineer"]
+        })
+        transport = httpx.ASGITransport(app=app)
+        fetch_mock = AsyncMock(return_value=sheet_dataframe)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch(
+                "app.api.v1.data_sources.GoogleSheetsWorker.fetch_sheet_dataframe",
+                new=fetch_mock
+            ):
+                response = await client.post(
+                    f"/api/v1/data-sources/{workspace_id}/google-sheet",
+                    json={"recruiter_name": "Tanmay", "sheet_url": sheet_url}
+                )
+                rejected_portal = await client.post(
+                    f"/api/v1/data-sources/{workspace_id}/google-sheet",
+                    json={"recruiter_name": "Naukri", "sheet_url": sheet_url}
+                )
+
+            sources_response = await client.get(f"/api/v1/data-sources/{workspace_id}")
+
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()["name"], "Tanmay live sheet")
+        self.assertEqual(response.json()["sync_status"], SyncStatus.ACTIVE.value)
+        self.assertEqual(rejected_portal.status_code, 400, rejected_portal.text)
+        self.assertEqual(fetch_mock.await_count, 1)
+        self.assertEqual(sources_response.status_code, 200, sources_response.text)
+        self.assertEqual(len(sources_response.json()), 1)
+
+        db = self.session_factory()
+        try:
+            source = db.query(DataSource).filter_by(workspace_id=workspace_id).one()
+            recruiter = db.query(RecruiterProfile).filter_by(id=source.recruiter_id).one()
+            fields = {
+                mapping.standard_field
+                for mapping in db.query(ColumnMapping).filter_by(data_source_id=source.id).all()
+            }
+            self.assertEqual(source.sheet_id_or_url, sheet_url)
+            self.assertEqual(recruiter.full_name, "Tanmay")
+            self.assertEqual(
+                fields,
+                {StandardField.ACTIVITY_DATE, StandardField.CALL_STATUS, StandardField.JOB_ROLE}
+            )
+        finally:
+            db.close()

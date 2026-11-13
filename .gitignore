@@ -18,6 +18,10 @@ ENV/
 .env
 .env.local
 .env.*.local
+backend/.env
+backend/.env.local
+backend/secrets/
+backend/*service-account*.json
 
 # Node / Frontend
 node_modules/
@@ -32,4 +36,3 @@ dist/
 # OS files
 .DS_Store
 Thumbs.db
-

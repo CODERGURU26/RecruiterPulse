@@ -25,6 +25,12 @@ ALIAS_MAP: Dict[StandardField, List[str]] = {
         "job role", "role", "position", "designation", "job title",
         "requirement", "profile", "technology", "skill", "opening",
         "job", "job_role", "client requirement"
+    ],
+    StandardField.RECRUITER_NAME: [
+        "recruiter", "recruiter name", "recruiter_name", "agent", "agent name",
+        "consultant", "consultant name", "caller", "caller name", "executive",
+        "recruiter / caller", "owner", "resource", "team member", "handled by",
+        "assigned to", "recruiter id", "sourcer", "spoc"
     ]
 }
 

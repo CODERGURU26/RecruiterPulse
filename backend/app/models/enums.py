@@ -33,6 +33,7 @@ class StandardField(str, enum.Enum):
     CALL_STATUS = "call_status"
     CANDIDATE_REF = "candidate_ref"
     JOB_ROLE = "job_role"
+    RECRUITER_NAME = "recruiter_name"
 
 
 class CallCategory(str, enum.Enum):

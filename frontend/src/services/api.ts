@@ -161,7 +161,26 @@ export const api = {
     } catch {
       return MOCK_PENDING_REPORT;
     }
+  },
+
+  async processRealFile(file: File, recruiterName?: string): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('workspace_id', MOCK_WORKSPACE.id);
+    if (recruiterName && recruiterName !== 'Agency Master Sheet (All Recruiters)') {
+      formData.append('recruiter_name', recruiterName);
+    }
+    const res = await fetch(`${API_BASE}/data-sources/process-real-file`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(err.detail || 'Upload failed');
+    }
+    return await res.json();
   }
+
 
 };
 

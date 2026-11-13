@@ -1,7 +1,9 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.database import Base, engine
@@ -15,6 +17,17 @@ app = FastAPI(
     version=settings.VERSION,
     description="Recruitment MIS Automation & Productivity Intelligence"
 )
+
+# Exception handler to safely handle any validation errors containing raw binary input
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    safe_errors = []
+    for err in exc.errors():
+        safe_err = dict(err)
+        if "input" in safe_err and isinstance(safe_err["input"], (bytes, bytearray)):
+            safe_err["input"] = f"<binary upload: {len(safe_err['input'])} bytes>"
+        safe_errors.append(safe_err)
+    return JSONResponse(status_code=422, content={"detail": safe_errors})
 
 # CORS Middleware (Allows frontend Next.js/Vite dev servers)
 app.add_middleware(

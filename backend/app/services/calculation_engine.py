@@ -86,8 +86,6 @@ class CalculationEngine:
         candidate_col = column_mapping.get(StandardField.CANDIDATE_REF)
         role_col = column_mapping.get(StandardField.JOB_ROLE)
 
-        if not date_col or date_col not in df.columns:
-            raise ValueError(f"Activity date column '{date_col}' not found in sheet.")
         if not status_col or status_col not in df.columns:
             raise ValueError(f"Call status column '{status_col}' not found in sheet.")
 
@@ -96,11 +94,13 @@ class CalculationEngine:
         total_input_rows = len(clean_df)
 
         # 1. Date Filtering
-        clean_df["_parsed_date"] = cls.parse_date_series(clean_df[date_col])
-        clean_df = clean_df.dropna(subset=["_parsed_date"])
-        
-        # Filter strictly for target_date
-        filtered_df = clean_df[clean_df["_parsed_date"].dt.date == target_date].copy()
+        if date_col and date_col in clean_df.columns:
+            clean_df["_parsed_date"] = cls.parse_date_series(clean_df[date_col])
+            clean_df = clean_df.dropna(subset=["_parsed_date"])
+            filtered_df = clean_df[clean_df["_parsed_date"].dt.date == target_date].copy()
+        else:
+            # If no date column is present, evaluate all rows for the given target date
+            filtered_df = clean_df.copy()
         
         if filtered_df.empty:
             return RecruiterMetricsResult(

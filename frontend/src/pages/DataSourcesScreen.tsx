@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Database,
   Share2,
@@ -9,13 +9,29 @@ import {
   CheckCircle2,
   AlertCircle,
   Users,
-  Plus
+  Plus,
+  FileCheck,
+  Sparkles,
+  ArrowRight,
+  TrendingUp,
+  AlertTriangle
 } from 'lucide-react';
+import { api } from '../services/api';
 
-export const DataSourcesScreen: React.FC = () => {
+interface DataSourcesScreenProps {
+  onNavigateToApproval?: () => void;
+}
+
+export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({ onNavigateToApproval }) => {
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [sheetUrl, setSheetUrl] = useState('');
   const [selectedRecruiter, setSelectedRecruiter] = useState('Priya Sharma');
+  const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<any | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const serviceAccount = 'sync@recruiterpulse.iam.gserviceaccount.com';
 
   const handleCopyEmail = () => {
@@ -24,12 +40,43 @@ export const DataSourcesScreen: React.FC = () => {
     setTimeout(() => setCopiedEmail(false), 2000);
   };
 
-  const sampleMappings = [
-    { field: 'Activity Date', detected: 'Calling Date', confidence: 0.95, sample: '12/11/2026', confirmed: true },
-    { field: 'Call Status', detected: 'Call Outcome', confidence: 0.92, sample: 'Connected, RNR, Switched off', confirmed: true },
-    { field: 'Candidate Identifier', detected: 'Mobile Number', confidence: 0.88, sample: '9876543210', confirmed: true },
-    { field: 'Job Role / Profile', detected: 'Requirement', confidence: 0.90, sample: 'Java Developer, React Lead', confirmed: true }
-  ];
+  const handleFile = async (file: File) => {
+    if (!file) return;
+    setErrorMessage(null);
+    setIsUploading(true);
+
+    try {
+      const result = await api.processRealFile(file, selectedRecruiter);
+      setUploadResult(result);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to process spreadsheet.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const onDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const onFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleFile(e.target.files[0]);
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -70,6 +117,7 @@ export const DataSourcesScreen: React.FC = () => {
         </div>
       </div>
 
+      {/* Ingestion Cards Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Connect Google Sheet Form */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
@@ -122,7 +170,7 @@ export const DataSourcesScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Offline File Upload (.xlsx / .csv) */}
+        {/* Offline File Upload (.xlsx / .csv) - FULLY WIRED */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 flex flex-col justify-between">
           <div>
             <div className="flex items-center space-x-2 text-slate-900 font-bold">
@@ -130,30 +178,158 @@ export const DataSourcesScreen: React.FC = () => {
               <h2>Upload Offline Spreadsheet (.xlsx, .csv)</h2>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              For teams working with local Excel files. Generates on-demand MIS reports upon upload.
+              Drag & drop or browse your real recruiter spreadsheet to test auto-detection and calling calculations instantly.
             </p>
           </div>
 
-          <div className="border-2 border-dashed border-slate-200 hover:border-brand-500 rounded-2xl p-8 text-center transition-colors cursor-pointer bg-slate-50/50">
-            <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-            <p className="text-sm font-semibold text-slate-700">Drag & drop your Excel or CSV file here</p>
-            <p className="text-xs text-slate-400 mt-1">Supports .xlsx, .xls, and .csv files up to 25MB</p>
+          {/* Hidden File Input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={onFileInputChange}
+            accept=".csv, .xlsx, .xls"
+            className="hidden"
+          />
+
+          {/* Interactive Dropzone */}
+          <div
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all cursor-pointer ${
+              isDragging
+                ? 'border-brand-500 bg-brand-50 scale-[1.01]'
+                : 'border-slate-200 hover:border-brand-500 hover:bg-slate-50/80 bg-slate-50/50'
+            }`}
+          >
+            {isUploading ? (
+              <div className="flex flex-col items-center space-y-3 py-2">
+                <div className="w-8 h-8 border-3 border-brand-200 border-t-brand-600 rounded-full animate-spin"></div>
+                <p className="text-sm font-bold text-brand-700">Analyzing columns and calculating calling metrics...</p>
+                <p className="text-xs text-slate-400">Filtering dates, running deduplication, classifying statuses...</p>
+              </div>
+            ) : (
+              <>
+                <Upload className="w-8 h-8 text-brand-600 mx-auto mb-2" />
+                <p className="text-sm font-bold text-slate-800">
+                  Click to browse or drag & drop your real recruiter sheet
+                </p>
+                <p className="text-xs text-slate-400 mt-1">Supports Excel (.xlsx, .xls) and CSV (.csv) files</p>
+              </>
+            )}
           </div>
 
+          {errorMessage && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center space-x-2 text-xs font-semibold text-rose-700">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
           <div className="flex items-center space-x-2 text-xs text-slate-400">
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-            <span>DPDP Act Compliant: Candidate contacts purged immediately after aggregation.</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+            <span>DPDP Act Compliant: Candidate names & phone numbers are purged immediately after calculation.</span>
           </div>
         </div>
       </div>
 
-      {/* Column Auto-Detection Wizard Preview */}
+      {/* Uploaded File Processing Results Banner */}
+      {uploadResult && (
+        <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-6 shadow-sm space-y-5 animate-in fade-in duration-300">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center space-x-3">
+              <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-md shadow-emerald-500/20">
+                <FileCheck className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-slate-900">
+                  Spreadsheet Successfully Analyzed: {uploadResult.filename}
+                </h3>
+                <p className="text-xs text-emerald-800 font-medium">
+                  Processed for <strong>{uploadResult.recruiter_name}</strong> | Reporting Date: <strong>{uploadResult.reporting_date}</strong>
+                </p>
+              </div>
+            </div>
+
+            {onNavigateToApproval && (
+              <button
+                onClick={onNavigateToApproval}
+                className="inline-flex items-center space-x-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/20 transition-all self-start sm:self-auto active:scale-95"
+              >
+                <span>View in MIS Approval Dashboard</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Quick Metrics Cards from Real File */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white p-4 rounded-xl border border-emerald-100 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Calls Found</span>
+              <p className="text-2xl font-extrabold text-slate-900 mt-1">{uploadResult.metrics.total_calls}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">{uploadResult.total_rows_in_file} total rows parsed</p>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-emerald-100 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Connected Calls</span>
+              <p className="text-2xl font-extrabold text-emerald-600 mt-1">{uploadResult.metrics.connected_calls}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">{uploadResult.metrics.not_connected_calls} not connected</p>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-emerald-100 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Connected Rate</span>
+              <p className="text-2xl font-extrabold text-brand-600 mt-1">{uploadResult.metrics.connected_rate}%</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Conversion efficiency</p>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-emerald-100 shadow-sm">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Duplicates Purged</span>
+              <p className="text-2xl font-extrabold text-amber-600 mt-1">{uploadResult.duplicates_removed}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Deduplication safeguard</p>
+            </div>
+          </div>
+
+          {/* Multi-Recruiter Breakdown if Master Sheet */}
+          {uploadResult.recruiters_processed && uploadResult.recruiters_processed.length > 1 && (
+            <div className="bg-white rounded-xl border border-emerald-100 p-4 space-y-2">
+              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                Recruiters Detected in Sheet ({uploadResult.recruiters_processed.length})
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1">
+                {uploadResult.recruiters_processed.map((r: any, idx: number) => (
+                  <div key={idx} className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs flex justify-between items-center">
+                    <div>
+                      <p className="font-bold text-slate-800">{r.name}</p>
+                      <p className="text-[11px] text-slate-500">{r.total_calls} calls ({r.connected_calls} conn)</p>
+                    </div>
+                    <span className="px-2 py-0.5 bg-brand-50 text-brand-700 rounded text-xs font-bold font-mono">
+                      {r.connected_rate}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Unmapped Status Warning if applicable */}
+          {uploadResult.unmapped_statuses && uploadResult.unmapped_statuses.length > 0 && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs flex items-center space-x-2 text-amber-800">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+              <span>
+                <strong>Unmapped Statuses Detected:</strong> {uploadResult.unmapped_statuses.join(', ')} (defaulted to attempt for safety).
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Auto-Detected Column Mappings List */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div>
-            <h2 className="text-base font-bold text-slate-900">Active Column Mappings</h2>
+            <h2 className="text-base font-bold text-slate-900">
+              {uploadResult ? 'Columns Detected From Your File' : 'Standard Field Mappings'}
+            </h2>
             <p className="text-xs text-slate-500">
-              Heuristic detector maps varied agency terminology to standardized fields.
+              Heuristic detector recognizes variations in date, status, candidate, and role headers.
             </p>
           </div>
           <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-200">
@@ -162,32 +338,58 @@ export const DataSourcesScreen: React.FC = () => {
         </div>
 
         <div className="divide-y divide-slate-100">
-          {sampleMappings.map((m, idx) => (
-            <div key={idx} className="p-4 px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
-              <div className="space-y-0.5">
-                <div className="flex items-center space-x-2">
-                  <span className="font-bold text-sm text-slate-900">{m.field}</span>
-                  <span className="text-xs text-slate-400 font-mono">mapped to</span>
-                  <span className="px-2 py-0.5 bg-brand-50 text-brand-700 rounded text-xs font-bold border border-brand-200">
-                    "{m.detected}"
+          {uploadResult?.detected_columns ? (
+            Object.entries(uploadResult.detected_columns).map(([field, item]: [string, any], idx: number) => (
+              <div key={idx} className="p-4 px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
+                <div className="space-y-0.5">
+                  <div className="flex items-center space-x-2">
+                    <span className="font-bold text-sm text-slate-900 capitalize">{field.replace('_', ' ')}</span>
+                    <span className="text-xs text-slate-400 font-mono">mapped to</span>
+                    <span className="px-2 py-0.5 bg-brand-50 text-brand-700 rounded text-xs font-bold border border-brand-200">
+                      "{item.source_column || 'Not found'}"
+                    </span>
+                  </div>
+                  {item.sample_values && item.sample_values.length > 0 && (
+                    <p className="text-xs text-slate-400">Sample preview: {item.sample_values.join(', ')}</p>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-3">
+                  <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
+                    {(item.confidence * 100).toFixed(0)}% Confidence
                   </span>
                 </div>
-                <p className="text-xs text-slate-400">Sample preview: {m.sample}</p>
               </div>
+            ))
+          ) : (
+            [
+              { field: 'Activity Date', detected: 'Calling Date', confidence: 0.95, sample: '12/11/2026' },
+              { field: 'Call Status', detected: 'Call Outcome', confidence: 0.92, sample: 'Connected, RNR, Switched off' },
+              { field: 'Candidate Identifier', detected: 'Mobile Number', confidence: 0.88, sample: '9876543210' },
+              { field: 'Job Role / Profile', detected: 'Requirement', confidence: 0.90, sample: 'Java Developer, React Lead' }
+            ].map((m, idx) => (
+              <div key={idx} className="p-4 px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
+                <div className="space-y-0.5">
+                  <div className="flex items-center space-x-2">
+                    <span className="font-bold text-sm text-slate-900">{m.field}</span>
+                    <span className="text-xs text-slate-400 font-mono">mapped to</span>
+                    <span className="px-2 py-0.5 bg-brand-50 text-brand-700 rounded text-xs font-bold border border-brand-200">
+                      "{m.detected}"
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">Sample preview: {m.sample}</p>
+                </div>
 
-              <div className="flex items-center space-x-3">
-                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
-                  {(m.confidence * 100).toFixed(0)}% Confidence
-                </span>
-                <span className="text-xs font-semibold text-slate-500 cursor-pointer hover:text-brand-600">
-                  Edit Mapping
-                </span>
+                <div className="flex items-center space-x-3">
+                  <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
+                    {(m.confidence * 100).toFixed(0)}% Confidence
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>
   );
 };
-

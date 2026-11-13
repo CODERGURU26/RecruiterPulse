@@ -9,9 +9,9 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
 
     # Database
-    # Default to local SQLite for instant dev/testing, override with PostgreSQL in production:
+    # Default to fixed local SQLite inside backend folder for instant dev/testing, override with PostgreSQL in production:
     # e.g., postgresql+psycopg://user:password@localhost:5432/recruiterpulse
-    DATABASE_URL: str = "sqlite:///./recruiterpulse.db"
+    DATABASE_URL: str = f"sqlite:///{os.path.abspath(os.path.join(os.path.dirname(__file__), '../../recruiterpulse.db')).replace('\\', '/')}"
 
     # Security & Auth
     SECRET_KEY: str = "recruiterpulse-super-secret-key-change-in-production-2026"

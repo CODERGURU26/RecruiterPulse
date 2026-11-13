@@ -25,6 +25,18 @@ export function App() {
     loadData();
   }, []);
 
+  const handleTabChange = async (tab: 'approval' | 'dashboard' | 'sources') => {
+    setActiveTab(tab);
+    if (tab === 'approval' || tab === 'dashboard') {
+      try {
+        const rep = await api.getPendingReport();
+        if (rep) setReport(rep);
+      } catch (e) {
+        // use existing
+      }
+    }
+  };
+
   if (loading || !report) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -40,7 +52,7 @@ export function App() {
     <div className="min-h-screen bg-slate-50 flex flex-col text-slate-900">
       <Navbar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabChange}
         workspaceName="Apex Staffing Solutions"
         hasPendingReport={report.status === 'DRAFT_PENDING_APPROVAL'}
       />
@@ -56,7 +68,9 @@ export function App() {
           <ManagementDashboard report={report} />
         )}
         {activeTab === 'sources' && (
-          <DataSourcesScreen />
+          <DataSourcesScreen
+            onNavigateToApproval={() => handleTabChange('approval')}
+          />
         )}
       </main>
 
@@ -66,6 +80,7 @@ export function App() {
       </footer>
     </div>
   );
+
 }
 
 export default App;

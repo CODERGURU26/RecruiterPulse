@@ -45,6 +45,18 @@ class TestGoogleIntegrations(unittest.TestCase):
             ["13/11/2026", "Connected", "extra cell"]
         )
 
+    def test_google_sheets_duplicate_headers_are_made_unique(self):
+        dataframe = GoogleSheetsWorker._values_to_dataframe([
+            ["Date", "Calling Status", "Calling Status"],
+            ["13/11/2026", "Connected", "Not Connected"]
+        ])
+
+        self.assertEqual(
+            dataframe.columns.tolist(),
+            ["Date", "Calling Status", "Calling Status (2)"]
+        )
+        self.assertEqual(dataframe["Calling Status (2)"].iloc[0], "Not Connected")
+
     def test_google_calendar_tomorrow_window(self):
         """Tests calculation of tomorrow's 00:00 to 23:59:59 window in IST."""
         ref_date = date(2026, 11, 12)

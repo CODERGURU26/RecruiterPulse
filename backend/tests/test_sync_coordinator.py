@@ -88,6 +88,11 @@ class TestSyncCoordinator(unittest.IsolatedAsyncioTestCase):
                     data_source_id=data_source.id,
                     standard_field=StandardField.JOB_ROLE,
                     source_column_name="Role"
+                ),
+                ColumnMapping(
+                    data_source_id=data_source.id,
+                    standard_field=StandardField.RECRUITER_NAME,
+                    source_column_name="Recruiter"
                 )
             ])
         db.commit()
@@ -96,10 +101,14 @@ class TestSyncCoordinator(unittest.IsolatedAsyncioTestCase):
 
         async def fetch_sheet(sheet_id, _tab_name):
             sheet_date = target_day if sheet_id == "active-sheet" else target_day - timedelta(days=1)
+            recruiter_name = (
+                "Active Recruiter" if sheet_id == "active-sheet" else "Old Sheet Recruiter"
+            )
             return pd.DataFrame({
-                "Date": [sheet_date.strftime("%d/%m/%Y")],
-                "Status": ["Connected"],
-                "Role": [f"{sheet_id} role"]
+                "Date": [sheet_date.strftime("%d/%m/%Y"), sheet_date.strftime("%d/%m/%Y")],
+                "Status": ["Connected", "Connected"],
+                "Role": [f"{sheet_id} role", "Other recruiter's role"],
+                "Recruiter": [recruiter_name, "Other Recruiter"]
             })
 
         try:

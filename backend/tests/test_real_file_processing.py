@@ -311,6 +311,14 @@ class TestRealFileProcessing(unittest.IsolatedAsyncioTestCase):
                     f"/api/v1/data-sources/{workspace_id}/google-sheet",
                     json={"recruiter_name": "Naukri", "sheet_url": sheet_url}
                 )
+            with patch(
+                "app.api.v1.data_sources.GoogleSheetsWorker.fetch_sheet_dataframe",
+                new=AsyncMock(return_value=sheet_dataframe.assign(Recruiter="Swagata"))
+            ):
+                mismatched_recruiter = await client.post(
+                    f"/api/v1/data-sources/{workspace_id}/google-sheet",
+                    json={"recruiter_name": "Chandni", "sheet_url": sheet_url}
+                )
 
             sources_response = await client.get(f"/api/v1/data-sources/{workspace_id}")
 
@@ -318,6 +326,8 @@ class TestRealFileProcessing(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["name"], "Tanmay live sheet")
         self.assertEqual(response.json()["sync_status"], SyncStatus.ACTIVE.value)
         self.assertEqual(rejected_portal.status_code, 400, rejected_portal.text)
+        self.assertEqual(mismatched_recruiter.status_code, 400, mismatched_recruiter.text)
+        self.assertIn("lists Swagata", mismatched_recruiter.json()["detail"])
         self.assertEqual(fetch_mock.await_count, 1)
         self.assertEqual(sources_response.status_code, 200, sources_response.text)
         self.assertEqual(len(sources_response.json()), 1)

@@ -50,12 +50,20 @@ class GoogleSheetsWorker:
             str(header).strip() if str(header).strip() else f"Unnamed: {index + 1}"
             for index, header in enumerate(headers)
         ]
+        header_counts: Dict[str, int] = {}
+        unique_headers = []
+        for header in headers:
+            header_counts[header] = header_counts.get(header, 0) + 1
+            unique_headers.append(
+                header if header_counts[header] == 1
+                else f"{header} ({header_counts[header]})"
+            )
         data_rows = values[1:]
         padded_rows = [
             list(row) + [""] * (width - len(row))
             for row in data_rows
         ]
-        return pd.DataFrame(padded_rows, columns=headers)
+        return pd.DataFrame(padded_rows, columns=unique_headers)
 
     @classmethod
     def fetch_via_service_account(

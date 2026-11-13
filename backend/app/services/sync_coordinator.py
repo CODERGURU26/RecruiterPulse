@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from typing import Dict, Any, List, Optional, Tuple
 from zoneinfo import ZoneInfo
+import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -123,6 +124,13 @@ class SyncCoordinator:
             try:
                 # Ingest spreadsheet
                 df = await GoogleSheetsWorker.fetch_sheet_dataframe(ds.sheet_id_or_url, ds.sheet_tab_name)
+                recruiter_column = col_map.get(StandardField.RECRUITER_NAME)
+                if recruiter_column and recruiter_column in df.columns:
+                    recruiter_values = df[recruiter_column].astype("string").str.strip()
+                    recruiter_values = recruiter_values.replace("", pd.NA).ffill()
+                    df = df[
+                        recruiter_values.str.casefold() == rec.full_name.strip().casefold()
+                    ].copy()
                 metrics_res = CalculationEngine.calculate_recruiter_activity(
                     df=df,
                     column_mapping=col_map,

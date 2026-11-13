@@ -631,6 +631,25 @@ async def register_google_sheet(
             detail="The selected tab must have detectable call-status and activity-date columns before live sync can be enabled."
         )
 
+    recruiter_column = mappings.get(StandardField.RECRUITER_NAME)
+    if recruiter_column and recruiter_column in dataframe.columns:
+        recruiter_values = dataframe[recruiter_column].astype(str).str.strip()
+        recruiter_values = recruiter_values[
+            ~recruiter_values.str.casefold().isin({"", "nan", "none", "-"})
+        ]
+        available_recruiters = sorted(set(recruiter_values.tolist()), key=str.casefold)
+        if available_recruiters and recruiter_name.casefold() not in {
+            name.casefold() for name in available_recruiters
+        }:
+            names = ", ".join(available_recruiters[:5])
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"The selected tab's Recruiter column lists {names}, not "
+                    f"'{recruiter_name}'. Enter a name from this tab or select the correct tab."
+                )
+            )
+
     recruiter = db.query(RecruiterProfile).filter(
         RecruiterProfile.workspace_id == workspace_id,
         RecruiterProfile.full_name.ilike(recruiter_name)

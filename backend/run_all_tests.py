@@ -25,6 +25,8 @@ def main():
     from tests.test_report_lifecycle import TestReportLifecycle
     from tests.test_performance import TestPerformanceAndScalability
     from tests.test_google_integrations import TestGoogleIntegrations
+    from tests.test_spreadsheet_parser import TestSpreadsheetParserAndRecruiter
+    from tests.test_real_file_processing import TestRealFileProcessing
 
     suite.addTests(loader.loadTestsFromTestCase(TestColumnDetector))
     suite.addTests(loader.loadTestsFromTestCase(TestCalculationEngine))
@@ -33,6 +35,8 @@ def main():
     suite.addTests(loader.loadTestsFromTestCase(TestReportLifecycle))
     suite.addTests(loader.loadTestsFromTestCase(TestPerformanceAndScalability))
     suite.addTests(loader.loadTestsFromTestCase(TestGoogleIntegrations))
+    suite.addTests(loader.loadTestsFromTestCase(TestSpreadsheetParserAndRecruiter))
+    suite.addTests(loader.loadTestsFromTestCase(TestRealFileProcessing))
 
 
     runner = unittest.TextTestRunner(verbosity=2)
@@ -59,4 +63,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

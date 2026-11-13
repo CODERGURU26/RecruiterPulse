@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
+from urllib.parse import urlparse
 import io
 import pandas as pd
 
@@ -31,6 +32,7 @@ from app.schemas.data_source import (
 from app.services.column_detector import ColumnDetector
 from app.services.calculation_engine import CalculationEngine
 from app.services.spreadsheet_parser import SpreadsheetParser
+from app.services.google_sheets_worker import GoogleSheetsWorker
 
 router = APIRouter(prefix="/data-sources", tags=["Data Sources & Column Mapping"])
 
@@ -47,6 +49,7 @@ async def detect_columns_from_file(request: Request):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No file uploaded.")
 
     content = await file.read()
+    await file.close()
     filename = getattr(file, "filename", "") or ""
 
     try:
@@ -89,10 +92,11 @@ async def process_real_file(
     """
     form = await request.form()
     file = form.get("file")
-    if not file or not hasattr(file, "read"):
+    google_sheet_url = str(form.get("google_sheet_url") or "").strip()
+    if not (file and hasattr(file, "read")) and not google_sheet_url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No file uploaded in the request."
+            detail="Upload a file or provide a Google Sheets URL."
         )
 
     workspace_id = str(form.get("workspace_id") or "ws-apex-101")
@@ -101,8 +105,28 @@ async def process_real_file(
     raw_date = form.get("target_date_str")
     target_date_str = str(raw_date) if raw_date else None
 
-    content = await file.read()
-    filename = getattr(file, "filename", "") or "recruiter_data.xlsx"
+    if file and hasattr(file, "read"):
+        content = await file.read()
+        await file.close()
+        filename = getattr(file, "filename", "") or "recruiter_data.xlsx"
+    else:
+        parsed_url = urlparse(google_sheet_url)
+        if parsed_url.scheme != "https" or parsed_url.hostname not in ("docs.google.com", "www.docs.google.com"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provide an HTTPS URL from docs.google.com."
+            )
+        try:
+            google_df = await GoogleSheetsWorker.fetch_sheet_dataframe(google_sheet_url)
+            if google_df.empty:
+                raise ValueError("The selected Google Sheets tab is empty.")
+            content = google_df.to_csv(index=False).encode("utf-8")
+            filename = "google_sheet.csv"
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unable to read Google Sheet: {exc}"
+            ) from exc
 
     try:
         if filename.lower().endswith((".xlsx", ".xls")):
@@ -160,17 +184,19 @@ async def process_real_file(
             detections = sheet_detections
         detected_sheet_names.append(sheet_name or "CSV")
 
-        normalized = pd.DataFrame(index=source_df.index)
         recruiter_source = sheet_mapping.get(StandardField.RECRUITER_NAME)
         source_subset = source_df
         if recruiter_source and not process_all_recruiters and recruiter_name:
             recruiter_values = source_df[recruiter_source].astype(str).str.strip().str.casefold()
             source_subset = source_df[recruiter_values == recruiter_name.strip().casefold()]
 
+        normalized = pd.DataFrame(index=source_subset.index)
         for field, canonical_name in canonical_names.items():
             source_column = sheet_mapping.get(field)
             if source_column and source_column in source_subset.columns:
                 normalized[canonical_name] = source_subset[source_column]
+        if "Recruiter" in normalized.columns:
+            normalized["Recruiter"] = normalized["Recruiter"].replace(r"^\s*$", pd.NA, regex=True).ffill()
 
         if recruiter_name and not process_all_recruiters:
             normalized["Recruiter"] = recruiter_name
@@ -201,8 +227,11 @@ async def process_real_file(
     if target_date_str:
         try:
             target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
-        except Exception:
-            pass
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="target_date_str must use YYYY-MM-DD format."
+            ) from exc
 
     if target_date is None and date_col and date_col in df.columns:
         parsed_dates = CalculationEngine.parse_date_series(df[date_col]).dropna()
@@ -212,6 +241,13 @@ async def process_real_file(
             target_date = date.today()
     elif target_date is None:
         target_date = date.today()
+
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not workspace:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workspace '{workspace_id}' was not found. Run the backend seed script or provide a valid workspace ID."
+        )
 
     # 3. Load Workspace Taxonomy
     taxonomies = db.query(StatusTaxonomy).filter(StatusTaxonomy.workspace_id == workspace_id).all()
@@ -226,17 +262,30 @@ async def process_real_file(
         and df[recruiter_col].dropna().nunique() > 1
     )
 
-    # 5. Create or Get HourlyReport for target_date
+    # Update the existing draft for this day, but never mutate an approved report.
     report = db.query(HourlyReport).filter(
         HourlyReport.workspace_id == workspace_id,
-        HourlyReport.reporting_date == target_date
+        HourlyReport.reporting_date == target_date,
+        HourlyReport.status == ReportStatus.DRAFT_PENDING_APPROVAL
     ).order_by(HourlyReport.created_at.desc()).first()
 
     if not report:
+        current_hour = datetime.now(ZoneInfo(workspace.timezone)).hour
+        existing_slots = {
+            slot for (slot,) in db.query(HourlyReport.hour_slot).filter(
+                HourlyReport.workspace_id == workspace_id,
+                HourlyReport.reporting_date == target_date
+            ).all()
+        }
+        available_hours = [(current_hour + offset) % 24 for offset in range(24)]
+        hour_slot = next(
+            (f"{hour:02d}:00" for hour in available_hours if f"{hour:02d}:00" not in existing_slots),
+            f"{current_hour:02d}:00"
+        )
         report = HourlyReport(
             workspace_id=workspace_id,
             reporting_date=target_date,
-            hour_slot="15:00",
+            hour_slot=hour_slot,
             status=ReportStatus.DRAFT_PENDING_APPROVAL,
             summary_totals={}
         )
@@ -292,7 +341,7 @@ async def process_real_file(
             metric.not_connected_calls = calc_res.not_connected_calls
             metric.total_calls = calc_res.total_calls
             metric.connected_rate = calc_res.connected_rate
-            metric.next_day_interviews = 1  # Standard placeholder for master sheet
+            metric.next_day_interviews = 0
 
             processed_recruiters.append({
                 "name": clean_name,
@@ -302,9 +351,14 @@ async def process_real_file(
                 "job_roles": calc_res.job_roles
             })
 
-        # Calculate overall sheet totals for response preview
+        # Include recruiter identity in the dedupe key when calculating team totals.
+        overall_df = df.copy()
+        if "Candidate" in overall_df.columns:
+            overall_df["Candidate"] = (
+                overall_df["Recruiter"].astype(str) + "|" + overall_df["Candidate"].astype(str)
+            )
         overall_calc_res = CalculationEngine.calculate_recruiter_activity(
-            df=df,
+            df=overall_df,
             column_mapping=col_mapping,
             status_taxonomy=taxonomy_lookup,
             target_date=target_date
@@ -312,7 +366,12 @@ async def process_real_file(
 
     else:
         # Single recruiter file
-        name_to_use = recruiter_name or (filename.split(".")[0].replace("_", " ").title())
+        detected_recruiters = df[recruiter_col].dropna().astype(str).str.strip().unique() if recruiter_col else []
+        name_to_use = (
+            recruiter_name
+            or (detected_recruiters[0] if len(detected_recruiters) == 1 else None)
+            or filename.rsplit(".", 1)[0].replace("_", " ").title()
+        )
         if name_to_use == "Agency Master Sheet (All Recruiters)":
             name_to_use = filename.split(".")[0].replace("_", " ").title()
 
@@ -355,7 +414,7 @@ async def process_real_file(
         metric.not_connected_calls = overall_calc_res.not_connected_calls
         metric.total_calls = overall_calc_res.total_calls
         metric.connected_rate = overall_calc_res.connected_rate
-        metric.next_day_interviews = 2
+        metric.next_day_interviews = 0
 
         processed_recruiters.append({
             "name": recruiter.full_name,
@@ -364,6 +423,12 @@ async def process_real_file(
             "connected_rate": overall_calc_res.connected_rate,
             "job_roles": overall_calc_res.job_roles
         })
+
+    if not processed_recruiters:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No recruiter rows were found for the selected recruiter and reporting date."
+        )
 
     # Recalculate summary totals across all metrics in this report
     db.flush()
@@ -386,6 +451,16 @@ async def process_real_file(
         "active_recruiters_count": len(all_metrics)
     }
 
+    db.add(AuditLog(
+        workspace_id=workspace_id,
+        action=AuditAction.REPORT_GENERATED,
+        details={
+            "report_id": report.id,
+            "reporting_date": str(target_date),
+            "sheets": detected_sheet_names,
+            "filename": filename
+        }
+    ))
     db.commit()
 
     return {

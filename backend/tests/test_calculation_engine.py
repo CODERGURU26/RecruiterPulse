@@ -72,6 +72,28 @@ class TestCalculationEngine(unittest.TestCase):
         self.assertEqual(result.not_connected_calls, 1)
         self.assertEqual(result.connected_rate, 50.0)
 
+    def test_missing_candidate_column_does_not_deduplicate_by_status(self):
+        df = pd.DataFrame({
+            "Date": ["12/11/2026", "12/11/2026", "12/11/2026"],
+            "Status": ["Connected", "Connected", "RNR"],
+            "Role": ["Frontend", "Frontend", "Backend"]
+        })
+        mapping = {
+            StandardField.ACTIVITY_DATE: "Date",
+            StandardField.CALL_STATUS: "Status",
+            StandardField.JOB_ROLE: "Role"
+        }
+
+        result = CalculationEngine.calculate_recruiter_activity(
+            df=df,
+            column_mapping=mapping,
+            status_taxonomy=self.taxonomy,
+            target_date=self.target_date
+        )
+
+        self.assertEqual(result.total_calls, 3)
+        self.assertEqual(result.duplicates_removed, 0)
+
     def test_division_by_zero_safety(self):
         """Tests that recruiters with 0 calls produce 0.0% connected rate with zero errors."""
         df = pd.DataFrame({
@@ -149,4 +171,3 @@ class TestCalculationEngine(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

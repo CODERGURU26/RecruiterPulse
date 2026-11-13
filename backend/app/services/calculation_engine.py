@@ -117,13 +117,11 @@ class CalculationEngine:
 
         # 2. Deduplication Safeguard
         initial_filtered_count = len(filtered_df)
-        dedupe_subset = []
         if candidate_col and candidate_col in filtered_df.columns:
-            dedupe_subset.append(candidate_col)
-        dedupe_subset.append(status_col)
-        
-        if dedupe_subset:
-            filtered_df = filtered_df.drop_duplicates(subset=dedupe_subset, keep="first")
+            filtered_df = filtered_df.drop_duplicates(
+                subset=[candidate_col, status_col],
+                keep="first"
+            )
         
         duplicates_removed = initial_filtered_count - len(filtered_df)
 
@@ -183,4 +181,3 @@ class CalculationEngine:
             duplicates_removed=duplicates_removed,
             total_rows_processed=total_input_rows
         )
-

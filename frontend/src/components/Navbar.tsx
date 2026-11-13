@@ -11,8 +11,8 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
-  workspaceName = 'Apex Staffing Solutions',
-  hasPendingReport = true
+  workspaceName = 'RecruiterPulse',
+  hasPendingReport = false
 }) => {
   const [time, setTime] = useState<string>('');
 
@@ -113,4 +113,3 @@ export const Navbar: React.FC<NavbarProps> = ({
     </header>
   );
 };
-

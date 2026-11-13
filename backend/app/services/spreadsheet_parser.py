@@ -110,7 +110,10 @@ class SpreadsheetParser:
         parsed_sheets: List[Tuple[pd.DataFrame, str]] = []
 
         for sheet_name in xl.sheet_names:
-            preview = pd.read_excel(xl, sheet_name=sheet_name, header=None, nrows=20)
+            try:
+                preview = pd.read_excel(xl, sheet_name=sheet_name, header=None, nrows=20)
+            except Exception:
+                continue
             if preview.empty or len(preview.columns) < 2:
                 continue
 
@@ -125,7 +128,10 @@ class SpreadsheetParser:
             if best_score < 4:
                 continue
 
-            df = pd.read_excel(xl, sheet_name=sheet_name, header=best_header_row)
+            try:
+                df = pd.read_excel(xl, sheet_name=sheet_name, header=best_header_row)
+            except Exception:
+                continue
             df.columns = [str(column).strip() for column in df.columns]
             df = df.dropna(how="all").copy()
             if not df.empty:

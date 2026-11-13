@@ -47,29 +47,33 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
       const updated = await api.triggerSync(report.workspace_id);
       onReportUpdate(updated);
       showToast('Live Sync Complete: Google Sheets & Calendar refreshed!');
-    } catch {
-      showToast('Sync completed with cached sources.');
+    } catch (error) {
+      showToast(error instanceof Error ? `Sync failed: ${error.message}` : 'Sync failed.');
     } finally {
       setIsSyncing(false);
     }
   };
 
   const handleCopyWhatsApp = async () => {
-    const text = await api.getWhatsAppText(report.id);
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    showToast('Copied WhatsApp summary to clipboard!');
-    setTimeout(() => setCopied(false), 2500);
+    try {
+      const text = await api.getWhatsAppText(report.id);
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      showToast('Copied WhatsApp summary to clipboard!');
+      setTimeout(() => setCopied(false), 2500);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Unable to copy the report.');
+    }
   };
 
   const handleApprove = async () => {
     setIsApproving(true);
     try {
-      const updated = await api.approveReport(report.id, 'Pooja Kulkarni');
+      const updated = await api.approveReport(report.id);
       onReportUpdate(updated);
       showToast('Report Approved & Published to Management Dashboard!');
-    } catch {
-      showToast('Failed to approve report.');
+    } catch (error) {
+      showToast(error instanceof Error ? `Approval failed: ${error.message}` : 'Approval failed.');
     } finally {
       setIsApproving(false);
     }
@@ -79,12 +83,12 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
     if (!rejectReason.trim()) return;
     setIsRejecting(true);
     try {
-      const updated = await api.rejectReport(report.id, rejectReason, 'Pooja Kulkarni');
+      const updated = await api.rejectReport(report.id, rejectReason);
       onReportUpdate(updated);
       setShowRejectModal(false);
       showToast('Report rejected and flagged for sheet re-sync.');
-    } catch {
-      showToast('Failed to reject report.');
+    } catch (error) {
+      showToast(error instanceof Error ? `Rejection failed: ${error.message}` : 'Rejection failed.');
     } finally {
       setIsRejecting(false);
     }
@@ -131,7 +135,7 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
             )}
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Cumulative daily totals calculated from active recruiter Google Sheets. Review activity before publishing.
+            Daily calling totals calculated from the uploaded recruiter spreadsheet. Review activity before publishing.
           </p>
         </div>
 
@@ -202,7 +206,7 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
             <span className="p-2 bg-amber-50 text-amber-600 rounded-lg"><Calendar className="w-4 h-4" /></span>
           </div>
           <p className="text-3xl font-extrabold text-amber-600 mt-2">{report.summary_totals.next_day_interviews}</p>
-          <p className="text-xs text-slate-500 mt-1">Synced from Google Calendar</p>
+          <p className="text-xs text-slate-500 mt-1">Calendar data is not included in file uploads</p>
         </div>
       </div>
 
@@ -378,4 +382,3 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
     </div>
   );
 };
-

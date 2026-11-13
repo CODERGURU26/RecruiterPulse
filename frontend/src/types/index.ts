@@ -41,8 +41,8 @@ export interface Recruiter {
   id: string;
   workspace_id: string;
   full_name: string;
-  email?: string;
-  calendar_identifier?: string;
+  email?: string | null;
+  calendar_identifier?: string | null;
   is_active: boolean;
 }
 
@@ -59,6 +59,5 @@ export interface Workspace {
   name: string;
   slug: string;
   timezone: string;
-  service_account_email?: string;
+  service_account_email?: string | null;
 }
-

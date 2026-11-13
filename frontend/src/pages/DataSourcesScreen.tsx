@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Database,
   Share2,
@@ -17,24 +17,42 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { api } from '../services/api';
+import { Recruiter } from '../types';
 
 interface DataSourcesScreenProps {
+  workspaceId: string;
+  serviceAccountEmail?: string;
   onNavigateToApproval?: () => void;
 }
 
-export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({ onNavigateToApproval }) => {
+const AUTO_DETECT_RECRUITERS = '__auto__';
+const ALL_RECRUITERS = 'Agency Master Sheet (All Recruiters)';
+
+export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
+  workspaceId,
+  serviceAccountEmail,
+  onNavigateToApproval
+}) => {
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [sheetUrl, setSheetUrl] = useState('');
-  const [selectedRecruiter, setSelectedRecruiter] = useState('Priya Sharma');
+  const [selectedRecruiter, setSelectedRecruiter] = useState(AUTO_DETECT_RECRUITERS);
+  const [recruiters, setRecruiters] = useState<Recruiter[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<any | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const serviceAccount = 'sync@recruiterpulse.iam.gserviceaccount.com';
+  const serviceAccount = serviceAccountEmail || 'Service account not configured';
+
+  useEffect(() => {
+    api.getRecruiters(workspaceId)
+      .then(setRecruiters)
+      .catch((err: Error) => setErrorMessage(`Could not load recruiter roster: ${err.message}`));
+  }, [workspaceId]);
 
   const handleCopyEmail = () => {
+    if (!serviceAccountEmail) return;
     navigator.clipboard.writeText(serviceAccount);
     setCopiedEmail(true);
     setTimeout(() => setCopiedEmail(false), 2000);
@@ -46,10 +64,31 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({ onNavigate
     setIsUploading(true);
 
     try {
-      const result = await api.processRealFile(file, selectedRecruiter);
+      const result = await api.processRealFile(
+        file,
+        workspaceId,
+        selectedRecruiter === AUTO_DETECT_RECRUITERS ? undefined : selectedRecruiter
+      );
       setUploadResult(result);
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to process spreadsheet.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleGoogleSheet = async () => {
+    setErrorMessage(null);
+    setIsUploading(true);
+    try {
+      const result = await api.processGoogleSheet(
+        sheetUrl.trim(),
+        workspaceId,
+        selectedRecruiter === AUTO_DETECT_RECRUITERS ? undefined : selectedRecruiter
+      );
+      setUploadResult(result);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to read Google Sheet.');
     } finally {
       setIsUploading(false);
     }
@@ -84,7 +123,7 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({ onNavigate
       <div>
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Spreadsheets & Data Sources</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Connect your team's Google Sheets or upload files. RecruiterPulse auto-maps columns without altering your workflow.
+          Import a Google Sheets tab or upload an Excel/CSV file. RecruiterPulse detects call columns and creates a draft report from the actual rows.
         </p>
       </div>
 
@@ -94,16 +133,17 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({ onNavigate
           <div className="space-y-2">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-brand-500/30 text-brand-200 border border-brand-400/30">
               <Share2 className="w-3.5 h-3.5 mr-1" />
-              Google Service Account Model (Zero-OAuth Friction)
+              Read-only Google Sheets import
             </span>
-            <h2 className="text-xl font-bold tracking-tight">Share spreadsheets with your dedicated agent</h2>
+            <h2 className="text-xl font-bold tracking-tight">Share private sheets with the configured service account</h2>
             <p className="text-xs text-indigo-200 max-w-2xl">
-              No individual recruiter logins required. Simply share your recruiter calling Google Sheets with <strong>Viewer</strong> access to this email:
+              Public sheets can be imported directly. For private sheets, share with this service account if credentials are configured on the backend:
             </p>
           </div>
 
           <button
             onClick={handleCopyEmail}
+            disabled={!serviceAccountEmail}
             className="inline-flex items-center space-x-2 px-4 py-2.5 bg-white text-brand-900 hover:bg-slate-100 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 self-start md:self-auto"
           >
             {copiedEmail ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-brand-600" />}
@@ -119,14 +159,14 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({ onNavigate
 
       {/* Ingestion Cards Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Connect Google Sheet Form */}
+        {/* Google Sheets import */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <div className="flex items-center space-x-2 text-slate-900 font-bold">
             <FileSpreadsheet className="w-5 h-5 text-brand-600" />
-            <h2>Connect Recruiter Google Sheet</h2>
+            <h2>Import a Google Sheets tab</h2>
           </div>
           <p className="text-xs text-slate-500">
-            Paste the public or shared Google Sheets link and assign it to a recruiter roster profile.
+            Paste a Google Sheets URL. This imports the selected tab once and creates or updates the day's draft report.
           </p>
 
           <div className="space-y-3 pt-2">
@@ -139,10 +179,11 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({ onNavigate
                 onChange={(e) => setSelectedRecruiter(e.target.value)}
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none"
               >
-                <option>Priya Sharma</option>
-                <option>Rahul Verma</option>
-                <option>Amit Patel</option>
-                <option>Agency Master Sheet (All Recruiters)</option>
+                <option value={AUTO_DETECT_RECRUITERS}>Auto-detect from sheet/tab</option>
+                <option value={ALL_RECRUITERS}>Process all recruiters in sheet</option>
+                {recruiters.map((recruiter) => (
+                  <option key={recruiter.id} value={recruiter.full_name}>{recruiter.full_name}</option>
+                ))}
               </select>
             </div>
 
@@ -160,25 +201,24 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({ onNavigate
             </div>
 
             <button
-              onClick={() => {
-                if (sheetUrl) alert('Connected sheet and triggered column auto-detection!');
-              }}
+              onClick={() => void handleGoogleSheet()}
+              disabled={!sheetUrl.trim() || isUploading}
               className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all"
             >
-              Analyze & Connect Sheet
+              {isUploading ? 'Analyzing sheet...' : 'Analyze Google Sheet'}
             </button>
           </div>
         </div>
 
-        {/* Offline File Upload (.xlsx / .csv) - FULLY WIRED */}
+        {/* Spreadsheet file upload */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 flex flex-col justify-between">
           <div>
             <div className="flex items-center space-x-2 text-slate-900 font-bold">
               <Upload className="w-5 h-5 text-brand-600" />
-              <h2>Upload Offline Spreadsheet (.xlsx, .csv)</h2>
+              <h2>Upload Spreadsheet (.xlsx, .xls, .csv)</h2>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Drag & drop or browse your real recruiter spreadsheet to test auto-detection and calling calculations instantly.
+              Drag and drop or browse to analyze your actual recruiter data and create a draft report.
             </p>
           </div>
 
@@ -362,31 +402,9 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({ onNavigate
               </div>
             ))
           ) : (
-            [
-              { field: 'Activity Date', detected: 'Calling Date', confidence: 0.95, sample: '12/11/2026' },
-              { field: 'Call Status', detected: 'Call Outcome', confidence: 0.92, sample: 'Connected, RNR, Switched off' },
-              { field: 'Candidate Identifier', detected: 'Mobile Number', confidence: 0.88, sample: '9876543210' },
-              { field: 'Job Role / Profile', detected: 'Requirement', confidence: 0.90, sample: 'Java Developer, React Lead' }
-            ].map((m, idx) => (
-              <div key={idx} className="p-4 px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
-                <div className="space-y-0.5">
-                  <div className="flex items-center space-x-2">
-                    <span className="font-bold text-sm text-slate-900">{m.field}</span>
-                    <span className="text-xs text-slate-400 font-mono">mapped to</span>
-                    <span className="px-2 py-0.5 bg-brand-50 text-brand-700 rounded text-xs font-bold border border-brand-200">
-                      "{m.detected}"
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400">Sample preview: {m.sample}</p>
-                </div>
-
-                <div className="flex items-center space-x-3">
-                  <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
-                    {(m.confidence * 100).toFixed(0)}% Confidence
-                  </span>
-                </div>
-              </div>
-            ))
+            <div className="p-6 text-sm text-slate-500">
+              Upload a spreadsheet to see detected columns, confidence, and sample values.
+            </div>
           )}
         </div>
       </div>

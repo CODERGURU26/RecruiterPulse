@@ -46,6 +46,21 @@ class TestSpreadsheetParserAndRecruiter(unittest.TestCase):
         self.assertEqual(detections[StandardField.JOB_ROLE]["source_column"], "Profile")
         self.assertEqual(detections[StandardField.CANDIDATE_REF]["source_column"], "Contact Number")
 
+    def test_parse_every_calling_tab(self):
+        out = io.BytesIO()
+        with pd.ExcelWriter(out, engine='openpyxl') as writer:
+            for recruiter in ("Priya Sharma", "Rahul Verma"):
+                pd.DataFrame([
+                    ["Date", "Call Status", "Candidate", "Profile"],
+                    ["12/11/2026", "Connected", "Candidate A", "Java"],
+                    ["12/11/2026", "RNR", "Candidate B", "React"]
+                ]).to_excel(writer, sheet_name=recruiter, index=False, header=False)
+
+        sheets = SpreadsheetParser.parse_excel_sheets(out.getvalue())
+
+        self.assertEqual([name for _, name in sheets], ["Priya Sharma", "Rahul Verma"])
+        self.assertTrue(all(len(df) == 2 for df, _ in sheets))
+
     def test_csv_parser(self):
         """Tests that CSV files with standard or top metadata are parsed cleanly."""
         csv_bytes = b"Title Line\nDate,Recruiter,Calling Status,Candidate,Profile\n2026-11-12,Priya,Connected,9876543210,Java\n"

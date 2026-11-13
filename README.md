@@ -8,6 +8,8 @@ RecruiterPulse imports recruiter call logs, calculates per-recruiter daily metri
 2. From `frontend`, run `npm install` and `npm run dev`.
 3. Open `http://localhost:3000`. The local frontend expects the seeded workspace ID `ws-apex-101`.
 
+See [USER-MANUAL.md](./USER-MANUAL.md) for step-by-step setup, live Google Sheets registration, daily report workflow, and troubleshooting.
+
 ## Import a recruiter workbook
 
 On **Spreadsheets & Mapping**, upload `.xlsx`, `.xls`, or `.csv`. Excel workbooks are scanned across tabs; tabs with recognizable call-status columns are processed. Recruiter names come from a detected recruiter column, the selected recruiter, or the worksheet name. The report defaults to the current date in the workspace timezone; callers can supply `target_date_str` to process a different day. Recruiters appear in the report only when they have at least one counted call for that date. Connected, not-connected, total calls, and roles are calculated from those dated rows, and subsequent master-sheet uploads remove recruiters who have no calls for that date.

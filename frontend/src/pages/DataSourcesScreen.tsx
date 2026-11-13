@@ -130,7 +130,7 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
       const report = await api.triggerSync(workspaceId);
       setLiveSources(await api.getDataSources(workspaceId));
       setLiveSyncMessage(
-        `${source.name} is registered. Initial sync found ${report.summary_totals.total_calls} calls; sheets refresh every 15 minutes.`
+        `${source.name} is registered. Initial sync found ${report.summary_totals.total_calls} calls; automatic refresh follows the backend interval.`
       );
       onNavigateToApproval?.();
     } catch (err) {
@@ -284,7 +284,7 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
                 disabled={!sheetUrl.trim() || !liveRecruiterName.trim() || isRegisteringLiveSheet}
                 className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
               >
-                {isRegisteringLiveSheet ? 'Registering and syncing...' : 'Enable 15-minute live sync'}
+                {isRegisteringLiveSheet ? 'Registering and syncing...' : 'Enable automatic live sync'}
               </button>
               {liveSyncMessage && (
                 <p role="status" className="text-xs font-semibold text-emerald-700">{liveSyncMessage}</p>
@@ -361,7 +361,7 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
           <div>
             <h2 className="text-base font-bold text-slate-900">Registered live recruiter sheets</h2>
-            <p className="text-xs text-slate-500 mt-1">The backend refreshes these tabs every 15 minutes while it is running.</p>
+            <p className="text-xs text-slate-500 mt-1">The backend refreshes these tabs at its configured interval while it is running.</p>
           </div>
           <div className="divide-y divide-slate-100">
             {liveSources.map((source) => (

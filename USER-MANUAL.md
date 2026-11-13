@@ -56,19 +56,28 @@ The backend uses a Google service account to read private spreadsheets. It needs
 
 The app's **Spreadsheets & Data Sources** page shows the email to share with. It also has a copy button.
 
-## 3. Register each recruiter's call-log tab for live sync
+## 3. Register one tab or a whole workbook for live sync
 
-Register each recruiter's own tab once. You do not need to upload that sheet again after registration.
+You can register an individual recruiter tab or let RecruiterPulse scan a whole workbook. You do not need to upload the sheet again after registration.
+
+### Register one recruiter tab
 
 1. In Google Sheets, open the individual recruiter's call-log tab (for example, Tanmay).
 2. Copy the browser URL while that tab is selected. It must include its `gid`, such as `.../edit?gid=1195049191`.
-3. In RecruiterPulse, open **Spreadsheets & Data Sources**.
-4. Paste the URL in the Google Sheets URL field.
-5. In **Recruiter owning this tab**, enter the matching recruiter name.
-6. Select **Enable automatic live sync**. The first sync runs immediately; subsequent refreshes use `GOOGLE_SHEETS_SYNC_INTERVAL_MINUTES` from the backend `.env` (currently 5 minutes in your setup).
-7. Repeat for every recruiter's individual call-log tab. A registration replaces that recruiter's existing registered sheet, so each recruiter should have one active source.
+3. In RecruiterPulse, open **Spreadsheets & Data Sources** and paste the URL in the Google Sheets URL field.
+4. In **Recruiter owning this tab**, enter the matching recruiter name.
+5. Select **Enable automatic live sync**. The first sync runs immediately; subsequent refreshes use `GOOGLE_SHEETS_SYNC_INTERVAL_MINUTES` from the backend `.env`.
 
-Only tabs with detectable date and call-status columns can be registered. Do not register summary tabs or job-source tabs. **Naukri** and **Internshala** are job sources in the workbook, not recruiter names. Do not register an entire workbook URL without selecting the intended recruiter tab.
+### Register every supported recruiter tab in a workbook
+
+1. Share the workbook with the configured service-account email as **Viewer**.
+2. Paste a URL to the workbook into the Google Sheets URL field. The URL may point to any tab.
+3. Select **Register all recruiter tabs**. RecruiterPulse discovers the workbook's tabs and registers ones with recognizable activity-date and call-status columns. The initial sync runs after registration.
+4. Review the skipped-tab reasons shown on the page. Summary/non-call tabs are skipped. Tabs with multiple recruiter names are skipped because each live source must have one recruiter owner; split those logs into one tab per recruiter or register the appropriate individual tabs.
+
+Whole-workbook discovery requires the configured Google service-account key and Viewer access to the workbook. Naukri and Internshala are job sources, not recruiter names. Tabs that identify the same recruiter more than once, or conflict with that recruiter's already-registered different source, are skipped rather than silently replacing or double-counting it. To switch sources, disconnect the old one first.
+
+The **Registered live recruiter sheets** list shows each recruiter/tab and its last sync time or any sync error. Use **Disconnect** to remove a Google Sheet from RecruiterPulse. This stops its live sync and removes its column mappings, but does not delete the Google tab or historical reports. You can register that tab again later.
 
 The **Registered live recruiter sheets** list shows the source's last sync time or any sync error. It refreshes while the page is open.
 

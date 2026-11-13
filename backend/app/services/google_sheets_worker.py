@@ -2,7 +2,7 @@ import re
 import os
 import io
 import json
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, List
 import pandas as pd
 import httpx
 from app.core.config import settings
@@ -115,6 +115,36 @@ class GoogleSheetsWorker:
 
         values = result.get("values", [])
         return cls._values_to_dataframe(values)
+
+    @classmethod
+    def list_spreadsheet_tabs(cls, spreadsheet_id: str) -> List[Dict[str, str]]:
+        """Returns tab names and gids; workbook discovery requires service-account access."""
+        if not GOOGLE_API_AVAILABLE:
+            raise RuntimeError("Google API client libraries are not installed.")
+
+        key_file = settings.GOOGLE_SERVICE_ACCOUNT_KEY_PATH
+        if not key_file or not os.path.exists(key_file):
+            raise FileNotFoundError(
+                "A configured Google service-account key is required to discover workbook tabs."
+            )
+
+        scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+        creds = service_account.Credentials.from_service_account_file(key_file, scopes=scopes)
+        service = build("sheets", "v4", credentials=creds)
+        metadata = service.spreadsheets().get(
+            spreadsheetId=spreadsheet_id,
+            fields="sheets.properties(sheetId,title)"
+        ).execute()
+
+        return [
+            {
+                "gid": str(sheet["properties"]["sheetId"]),
+                "title": sheet["properties"]["title"]
+            }
+            for sheet in metadata.get("sheets", [])
+            if "sheetId" in sheet.get("properties", {})
+            and "title" in sheet.get("properties", {})
+        ]
 
     @classmethod
     async def fetch_via_web_export(

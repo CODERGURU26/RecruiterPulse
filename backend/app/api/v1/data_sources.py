@@ -26,6 +26,8 @@ from app.models import (
 from app.schemas.data_source import (
     DataSourceCreate,
     DataSourceResponse,
+    RegisterGoogleWorkbookRequest,
+    RegisterGoogleWorkbookResponse,
     RegisterGoogleSheetRequest,
     ColumnDetectionResponse,
     ColumnMappingItem,
@@ -711,6 +713,233 @@ async def register_google_sheet(
     db.commit()
     db.refresh(data_source)
     return data_source
+
+
+@router.post(
+    "/{workspace_id}/google-workbook",
+    response_model=RegisterGoogleWorkbookResponse,
+    status_code=status.HTTP_201_CREATED
+)
+async def register_google_workbook(
+    workspace_id: str,
+    payload: RegisterGoogleWorkbookRequest,
+    db: Session = Depends(get_db)
+):
+    """Registers each supported recruiter tab in a workbook for recurring sync."""
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
+
+    parsed_url = urlparse(payload.sheet_url)
+    if parsed_url.scheme != "https" or parsed_url.hostname not in ("docs.google.com", "www.docs.google.com"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide an HTTPS URL from docs.google.com."
+        )
+
+    spreadsheet_id, _ = GoogleSheetsWorker.extract_sheet_id(payload.sheet_url)
+    try:
+        tabs = GoogleSheetsWorker.list_spreadsheet_tabs(spreadsheet_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unable to discover workbook tabs: {exc}"
+        ) from exc
+
+    if not tabs:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No tabs were found in this Google Sheets workbook."
+        )
+
+    skipped = []
+    candidates = []
+    forbidden_names = {"", "naukri", "internshala"}
+    non_recruiter_tabs = {
+        "naukri", "internshala", "summary", "daily summary",
+        "dashboard", "report", "daily report", "master"
+    }
+
+    for tab in tabs:
+        tab_name = tab["title"]
+        if tab_name.strip().casefold() in non_recruiter_tabs:
+            skipped.append({
+                "tab_name": tab_name,
+                "reason": "This is a non-recruiter source or summary tab."
+            })
+            continue
+        tab_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit?gid={tab['gid']}"
+        try:
+            dataframe = GoogleSheetsWorker.fetch_via_service_account(
+                spreadsheet_id,
+                tab_name=tab_name
+            )
+            detections = ColumnDetector.analyze_dataframe(dataframe)
+            mappings = {
+                field: item["source_column"]
+                for field, item in detections.items()
+                if item["source_column"] is not None
+            }
+            if dataframe.empty or (
+                StandardField.CALL_STATUS not in mappings
+                or StandardField.ACTIVITY_DATE not in mappings
+            ):
+                skipped.append({
+                    "tab_name": tab_name,
+                    "reason": "No recognizable call-status and activity-date columns."
+                })
+                continue
+
+            recruiter_column = mappings.get(StandardField.RECRUITER_NAME)
+            recruiter_values = []
+            if recruiter_column and recruiter_column in dataframe.columns:
+                recruiter_values = [
+                    str(value).strip()
+                    for value in dataframe[recruiter_column].dropna().tolist()
+                    if str(value).strip().casefold() not in {"", "nan", "none", "-"}
+                ]
+            unique_recruiters = {name.casefold(): name for name in recruiter_values}
+            if len(unique_recruiters) > 1:
+                skipped.append({
+                    "tab_name": tab_name,
+                    "reason": "This tab contains multiple recruiter names; assign one recruiter per tab."
+                })
+                continue
+
+            recruiter_name = next(iter(unique_recruiters.values()), tab_name)
+            if recruiter_name.casefold() in forbidden_names:
+                skipped.append({
+                    "tab_name": tab_name,
+                    "reason": "Job-source tabs are not recruiter call-log tabs."
+                })
+                continue
+
+            candidates.append({
+                "tab_name": tab_name,
+                "gid": tab["gid"],
+                "url": tab_url,
+                "recruiter_name": recruiter_name,
+                "mappings": mappings,
+                "detections": detections
+            })
+        except Exception as exc:
+            skipped.append({
+                "tab_name": tab_name,
+                "reason": f"Could not read tab: {exc}"
+            })
+
+    candidate_counts = {}
+    for candidate in candidates:
+        name_key = candidate["recruiter_name"].casefold()
+        candidate_counts[name_key] = candidate_counts.get(name_key, 0) + 1
+
+    registered = []
+    for candidate in candidates:
+        tab_name = candidate["tab_name"]
+        recruiter_name = candidate["recruiter_name"]
+        if candidate_counts[recruiter_name.casefold()] > 1:
+            skipped.append({
+                "tab_name": tab_name,
+                "reason": f"More than one tab identifies recruiter '{recruiter_name}'."
+            })
+            continue
+
+        recruiter = db.query(RecruiterProfile).filter(
+            RecruiterProfile.workspace_id == workspace_id,
+            RecruiterProfile.full_name.ilike(recruiter_name)
+        ).first()
+        if not recruiter:
+            recruiter = RecruiterProfile(
+                workspace_id=workspace_id,
+                full_name=recruiter_name,
+                is_active=True
+            )
+            db.add(recruiter)
+            db.flush()
+        else:
+            recruiter.is_active = True
+
+        data_source = db.query(DataSource).filter(
+            DataSource.workspace_id == workspace_id,
+            DataSource.recruiter_id == recruiter.id,
+            DataSource.source_type == SourceType.GOOGLE_SHEET
+        ).first()
+        if data_source:
+            existing_id, existing_gid = GoogleSheetsWorker.extract_sheet_id(data_source.sheet_id_or_url)
+            if existing_id != spreadsheet_id or existing_gid != candidate["gid"]:
+                skipped.append({
+                    "tab_name": tab_name,
+                    "reason": (
+                        f"'{recruiter_name}' already has another live sheet. Remove it first "
+                        "or register the workbook's matching tab."
+                    )
+                })
+                continue
+            data_source.name = f"{recruiter_name} - {tab_name}"
+            data_source.sheet_id_or_url = candidate["url"]
+            data_source.sheet_tab_name = tab_name
+            data_source.sync_status = SyncStatus.ACTIVE
+            data_source.last_error_message = None
+        else:
+            data_source = DataSource(
+                workspace_id=workspace_id,
+                recruiter_id=recruiter.id,
+                source_type=SourceType.GOOGLE_SHEET,
+                name=f"{recruiter_name} - {tab_name}",
+                sheet_id_or_url=candidate["url"],
+                sheet_tab_name=tab_name,
+                sync_status=SyncStatus.ACTIVE
+            )
+            db.add(data_source)
+            db.flush()
+
+        db.query(ColumnMapping).filter(
+            ColumnMapping.data_source_id == data_source.id
+        ).delete()
+        for field, source_column in candidate["mappings"].items():
+            db.add(ColumnMapping(
+                data_source_id=data_source.id,
+                standard_field=field,
+                source_column_name=source_column,
+                confidence_score=candidate["detections"][field]["confidence"],
+                is_confirmed=True
+            ))
+        db.add(AuditLog(
+            workspace_id=workspace_id,
+            action=AuditAction.DATA_SOURCE_CONNECTED,
+            details={
+                "data_source_id": data_source.id,
+                "recruiter": recruiter_name,
+                "tab_gid": candidate["gid"],
+                "workbook_registration": True
+            }
+        ))
+        registered.append(data_source)
+
+    db.commit()
+    for data_source in registered:
+        db.refresh(data_source)
+    return {"registered": registered, "skipped": skipped}
+
+
+@router.delete("/{workspace_id}/{data_source_id}")
+def delete_data_source(
+    workspace_id: str,
+    data_source_id: str,
+    db: Session = Depends(get_db)
+):
+    """Disconnects a Google Sheet source without deleting its Google tab or report history."""
+    data_source = db.query(DataSource).filter(
+        DataSource.workspace_id == workspace_id,
+        DataSource.id == data_source_id,
+        DataSource.source_type == SourceType.GOOGLE_SHEET
+    ).first()
+    if not data_source:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Google Sheet source not found.")
+
+    db.delete(data_source)
+    db.commit()
+    return {"deleted": True, "data_source_id": data_source_id}
 
 
 @router.post("/{workspace_id}", response_model=DataSourceResponse, status_code=status.HTTP_201_CREATED)

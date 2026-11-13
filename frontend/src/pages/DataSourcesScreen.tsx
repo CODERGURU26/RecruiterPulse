@@ -14,7 +14,8 @@ import {
   Sparkles,
   ArrowRight,
   TrendingUp,
-  AlertTriangle
+  AlertTriangle,
+  Trash2
 } from 'lucide-react';
 import { api } from '../services/api';
 import { LiveDataSource, Recruiter } from '../types';
@@ -41,6 +42,8 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
   const [liveSources, setLiveSources] = useState<LiveDataSource[]>([]);
   const [isRegisteringLiveSheet, setIsRegisteringLiveSheet] = useState(false);
   const [liveSyncMessage, setLiveSyncMessage] = useState<string | null>(null);
+  const [workbookSkipped, setWorkbookSkipped] = useState<{ tab_name: string; reason: string }[]>([]);
+  const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<any | null>(null);
@@ -146,6 +149,58 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
       setErrorMessage(message);
     } finally {
       setIsRegisteringLiveSheet(false);
+    }
+  };
+
+  const handleRegisterWholeWorkbook = async () => {
+    setErrorMessage(null);
+    setLiveSyncMessage(null);
+    setWorkbookSkipped([]);
+    setIsRegisteringLiveSheet(true);
+    try {
+      const result = await api.registerGoogleWorkbook(workspaceId, sheetUrl.trim());
+      setLiveSources(await api.getDataSources(workspaceId));
+      setWorkbookSkipped(result.skipped);
+      if (result.registered.length === 0) {
+        setLiveSyncMessage('No recruiter tabs were registered. Review the skipped-tab reasons below.');
+        return;
+      }
+
+      try {
+        const report = await api.triggerSync(workspaceId);
+        setLiveSyncMessage(
+          `${result.registered.length} recruiter tab(s) registered; initial sync found ${report.summary_totals.total_calls} calls.`
+        );
+        onNavigateToApproval?.();
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : 'Unknown sync error.';
+        setErrorMessage(
+          `${result.registered.length} tab(s) were registered, but the initial sync failed: ${detail}`
+        );
+      }
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : 'Unknown registration error.';
+      setErrorMessage(`Whole-workbook registration failed: ${detail}`);
+    } finally {
+      setIsRegisteringLiveSheet(false);
+    }
+  };
+
+  const handleDeleteLiveSheet = async (source: LiveDataSource) => {
+    if (!window.confirm(`Disconnect "${source.name}" from RecruiterPulse? The Google Sheet and past reports will not be deleted.`)) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setDeletingSourceId(source.id);
+    try {
+      await api.deleteGoogleSheet(workspaceId, source.id);
+      setLiveSources((current) => current.filter((item) => item.id !== source.id));
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : 'Unknown error.';
+      setErrorMessage(`Could not disconnect the sheet: ${detail}`);
+    } finally {
+      setDeletingSourceId(null);
     }
   };
 
@@ -289,6 +344,27 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
               {liveSyncMessage && (
                 <p role="status" className="text-xs font-semibold text-emerald-700">{liveSyncMessage}</p>
               )}
+              <div className="border-t border-slate-100 pt-3 space-y-2">
+                <p className="text-xs text-slate-500">
+                  Or register the whole workbook. RecruiterPulse will add tabs with recognizable date and call-status columns and skip summaries or ambiguous tabs. Workbook discovery requires the configured service account.
+                </p>
+                <button
+                  onClick={() => void handleRegisterWholeWorkbook()}
+                  disabled={!sheetUrl.trim() || isRegisteringLiveSheet}
+                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all disabled:opacity-50"
+                >
+                  {isRegisteringLiveSheet ? 'Scanning workbook tabs...' : 'Register all recruiter tabs'}
+                </button>
+                {workbookSkipped.length > 0 && (
+                  <ul className="space-y-1 text-xs text-amber-800" aria-label="Skipped workbook tabs">
+                    {workbookSkipped.map((item) => (
+                      <li key={`${item.tab_name}-${item.reason}`}>
+                        <strong>{item.tab_name}:</strong> {item.reason}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -366,14 +442,31 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
           <div className="divide-y divide-slate-100">
             {liveSources.map((source) => (
               <div key={source.id} className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
-                <span className="font-semibold text-slate-800">{source.name}</span>
-                <span className={source.last_error_message ? 'text-rose-600 text-xs' : 'text-slate-500 text-xs'}>
-                  {source.last_error_message
-                    ? `Sync error: ${source.last_error_message}`
-                    : source.last_synced_at
-                      ? `Last synced ${new Date(source.last_synced_at).toLocaleString()}`
-                      : source.sync_status}
-                </span>
+                <div>
+                  <span className="font-semibold text-slate-800">{source.name}</span>
+                  {source.sheet_tab_name && (
+                    <span className="block text-xs text-slate-400">Tab: {source.sheet_tab_name}</span>
+                  )}
+                  <span className={`block ${source.last_error_message ? 'text-rose-600' : 'text-slate-500'} text-xs`}>
+                    {source.last_error_message
+                      ? `Sync error: ${source.last_error_message}`
+                      : source.last_synced_at
+                        ? `Last synced ${new Date(source.last_synced_at).toLocaleString()}`
+                        : source.sync_status}
+                  </span>
+                </div>
+                {source.source_type === 'GOOGLE_SHEET' && (
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteLiveSheet(source)}
+                    disabled={deletingSourceId === source.id}
+                    className="inline-flex items-center gap-1 self-start rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                    aria-label={`Disconnect ${source.name}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    {deletingSourceId === source.id ? 'Disconnecting...' : 'Disconnect'}
+                  </button>
+                )}
               </div>
             ))}
           </div>

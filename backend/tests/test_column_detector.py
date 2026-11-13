@@ -75,6 +75,18 @@ class TestColumnDetector(unittest.TestCase):
 
         self.assertIsNone(results[StandardField.RECRUITER_NAME]["source_column"])
 
+    def test_recruiter_name_column_is_not_misclassified_as_candidate_name(self):
+        df = pd.DataFrame({
+            "Date": ["13/11/2026", "13/11/2026"],
+            "Call Status": ["Connected", "Not Connected"],
+            "Recruiter Name": ["Tanmay", "Divya"],
+        })
+
+        results = ColumnDetector.analyze_dataframe(df)
+
+        self.assertEqual(results[StandardField.RECRUITER_NAME]["source_column"], "Recruiter Name")
+        self.assertIsNone(results[StandardField.CANDIDATE_REF]["source_column"])
+
     def test_edge_case_empty_and_null_columns(self):
         """Tests handling of blank columns, NaN values, and unmapped fields."""
         df = pd.DataFrame({

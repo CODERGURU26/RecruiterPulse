@@ -28,6 +28,10 @@ class RegisterGoogleSheetRequest(BaseModel):
     sheet_tab_name: Optional[str] = None
 
 
+class RegisterGoogleWorkbookRequest(BaseModel):
+    sheet_url: str
+
+
 class DataSourceCreate(BaseModel):
     recruiter_id: Optional[str] = None
     source_type: SourceType = SourceType.GOOGLE_SHEET
@@ -50,3 +54,13 @@ class DataSourceResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class SkippedWorkbookTab(BaseModel):
+    tab_name: str
+    reason: str
+
+
+class RegisterGoogleWorkbookResponse(BaseModel):
+    registered: List[DataSourceResponse]
+    skipped: List[SkippedWorkbookTab]

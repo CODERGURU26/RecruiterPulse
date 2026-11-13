@@ -79,6 +79,7 @@ class ColumnDetector:
             alias in cleaned
             for alias in aliases
             if target_field != StandardField.RECRUITER_NAME or len(alias.split()) > 1
+            if target_field != StandardField.CANDIDATE_REF or alias != "name" or cleaned == "name"
         ):
             confidence = 0.70
 

@@ -1,4 +1,10 @@
-import { HourlyReport, LiveDataSource, Recruiter, Workspace } from '../types';
+import {
+  HourlyReport,
+  LiveDataSource,
+  Recruiter,
+  WorkbookRegistrationResult,
+  Workspace
+} from '../types';
 
 const API_BASE = '/api/v1';
 export const DEFAULT_WORKSPACE_ID = 'ws-apex-101';
@@ -39,6 +45,20 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ recruiter_name: recruiterName, sheet_url: sheetUrl })
+    });
+  },
+
+  registerGoogleWorkbook(workspaceId: string, sheetUrl: string): Promise<WorkbookRegistrationResult> {
+    return request(`${API_BASE}/data-sources/${workspaceId}/google-workbook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sheet_url: sheetUrl })
+    });
+  },
+
+  deleteGoogleSheet(workspaceId: string, dataSourceId: string): Promise<{ deleted: boolean }> {
+    return request(`${API_BASE}/data-sources/${workspaceId}/${dataSourceId}`, {
+      method: 'DELETE'
     });
   },
 

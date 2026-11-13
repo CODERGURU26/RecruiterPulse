@@ -50,10 +50,17 @@ export interface LiveDataSource {
   id: string;
   workspace_id: string;
   recruiter_id: string | null;
+  source_type: 'GOOGLE_SHEET' | 'EXCEL_UPLOAD' | 'CSV_UPLOAD';
   name: string;
+  sheet_tab_name: string | null;
   sync_status: 'ACTIVE' | 'PENDING_MAPPING' | 'ERROR' | 'PAUSED';
   last_synced_at: string | null;
   last_error_message: string | null;
+}
+
+export interface WorkbookRegistrationResult {
+  registered: LiveDataSource[];
+  skipped: { tab_name: string; reason: string }[];
 }
 
 export interface ColumnMappingItem {

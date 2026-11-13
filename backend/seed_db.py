@@ -19,7 +19,7 @@ from app.models import (
 
 
 def seed():
-    print("🔧 Creating fresh database with workspace + taxonomy (no fake reports)...", flush=True)
+    print("Creating fresh database with workspace + taxonomy (no fake reports)...", flush=True)
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
 
@@ -36,19 +36,23 @@ def seed():
             )
             db.add(ws)
             db.flush()
-            print("  ✓ Created Workspace 'Apex Staffing Solutions'", flush=True)
+            print("  Created Workspace 'Apex Staffing Solutions'", flush=True)
 
             # Seed Indian Status Taxonomy Presets (23 presets)
             for raw, cat in DEFAULT_INDIAN_TAXONOMY_PRESETS:
-                tax = StatusTaxonomy(
-                    workspace_id=ws.id,
-                    raw_status=raw,
-                    category=cat,
-                    is_default=True
-                )
-                db.add(tax)
+                existing_taxonomy = db.query(StatusTaxonomy).filter(
+                    StatusTaxonomy.workspace_id == ws.id,
+                    StatusTaxonomy.raw_status == raw
+                ).first()
+                if not existing_taxonomy:
+                    db.add(StatusTaxonomy(
+                        workspace_id=ws.id,
+                        raw_status=raw,
+                        category=cat,
+                        is_default=True
+                    ))
             db.flush()
-            print(f"  ✓ Seeded {len(DEFAULT_INDIAN_TAXONOMY_PRESETS)} Indian recruitment status taxonomy presets", flush=True)
+            print(f"  Seeded {len(DEFAULT_INDIAN_TAXONOMY_PRESETS)} Indian recruitment status taxonomy presets", flush=True)
 
             # Admin User (MIS Lead)
             admin_user = User(
@@ -61,37 +65,38 @@ def seed():
             )
             db.add(admin_user)
             db.flush()
-            print("  ✓ Created MIS Admin user: Pooja Kulkarni", flush=True)
+            print("  Created MIS Admin user: Pooja Kulkarni", flush=True)
 
             # Recruiter Profiles (empty — will be auto-created on file upload)
-            rec1 = RecruiterProfile(
-                id="rec-1",
-                workspace_id=ws.id,
-                full_name="Priya Sharma",
-                email="priya@apexstaffing.in",
-                calendar_identifier="priya@apexstaffing.in"
-            )
-            rec2 = RecruiterProfile(
-                id="rec-2",
-                workspace_id=ws.id,
-                full_name="Rahul Verma",
-                email="rahul@apexstaffing.in",
-                calendar_identifier="rahul@apexstaffing.in"
-            )
-            rec3 = RecruiterProfile(
-                id="rec-3",
-                workspace_id=ws.id,
-                full_name="Amit Patel",
-                email="amit@apexstaffing.in",
-                calendar_identifier="amit@apexstaffing.in"
-            )
-            db.add_all([rec1, rec2, rec3])
+            recruiters = [
+                ("Priya Sharma", "priya@apexstaffing.in"),
+                ("Rahul Verma", "rahul@apexstaffing.in"),
+                ("Amit Patel", "amit@apexstaffing.in"),
+            ]
+            for name, email in recruiters:
+                existing_recruiter = db.query(RecruiterProfile).filter(
+                    RecruiterProfile.workspace_id == ws.id,
+                    (RecruiterProfile.email == email) |
+                    (RecruiterProfile.full_name == name)
+                ).first()
+                if existing_recruiter:
+                    if not existing_recruiter.email:
+                        existing_recruiter.email = email
+                    if not existing_recruiter.calendar_identifier:
+                        existing_recruiter.calendar_identifier = email
+                else:
+                    db.add(RecruiterProfile(
+                        workspace_id=ws.id,
+                        full_name=name,
+                        email=email,
+                        calendar_identifier=email
+                    ))
             db.flush()
-            print("  ✓ Created 3 recruiter profiles: Priya, Rahul, Amit", flush=True)
+            print("  Ensured recruiter profiles: Priya, Rahul, Amit", flush=True)
 
         db.commit()
-        print("\n✅ Database ready! Upload real recruiter spreadsheets to generate live reports.", flush=True)
-        print("   No fake reports seeded — all data will come from your real files.\n", flush=True)
+        print("\nDatabase ready! Upload real recruiter spreadsheets to generate live reports.", flush=True)
+        print("   No fake reports seeded; all data will come from your real files.\n", flush=True)
 
     finally:
         db.close()

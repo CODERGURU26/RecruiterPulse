@@ -62,6 +62,19 @@ class TestColumnDetector(unittest.TestCase):
         self.assertEqual(results[StandardField.ACTIVITY_DATE]["source_column"], "Day")
         self.assertGreaterEqual(results[StandardField.ACTIVITY_DATE]["confidence"], 0.85)
 
+    def test_job_source_column_is_not_detected_as_recruiter(self):
+        df = pd.DataFrame({
+            "Date": ["13/11/2026"],
+            "Source": ["Internshala"],
+            "Calling Status": ["Connected"],
+            "Candidate Name": ["Example Candidate"],
+            "Recruiter comments, if any": ["Follow up tomorrow"],
+        })
+
+        results = ColumnDetector.analyze_dataframe(df)
+
+        self.assertIsNone(results[StandardField.RECRUITER_NAME]["source_column"])
+
     def test_edge_case_empty_and_null_columns(self):
         """Tests handling of blank columns, NaN values, and unmapped fields."""
         df = pd.DataFrame({
@@ -79,4 +92,3 @@ class TestColumnDetector(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

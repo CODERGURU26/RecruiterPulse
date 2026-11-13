@@ -75,7 +75,11 @@ class ColumnDetector:
         if cleaned in aliases:
             confidence = 0.90
         # 2. Substring / partial match
-        elif any(alias in cleaned or cleaned in alias for alias in aliases):
+        elif any(
+            alias in cleaned
+            for alias in aliases
+            if target_field != StandardField.RECRUITER_NAME or len(alias.split()) > 1
+        ):
             confidence = 0.70
 
         # 3. Value-based verification / adjustment
@@ -172,4 +176,3 @@ class ColumnDetector:
                 }
 
         return results
-

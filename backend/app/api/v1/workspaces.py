@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -16,6 +17,7 @@ from app.models import (
 )
 from app.schemas.workspace import WorkspaceCreate, WorkspaceResponse
 from app.schemas.recruiter import RecruiterCreate, RecruiterResponse
+from app.services.workspace_bootstrap import ensure_default_workspace
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces & Onboarding"])
 
@@ -88,15 +90,17 @@ def create_workspace(payload: WorkspaceCreate, db: Session = Depends(get_db)):
 
 @router.get("/default", response_model=WorkspaceResponse)
 def get_default_workspace(db: Session = Depends(get_db)):
-    """Returns the workspace provisioned for the local frontend."""
+    """Returns or provisions the default workspace for the local frontend."""
     workspace = db.query(Workspace).filter(
-        Workspace.slug == "apex-staffing"
+        or_(
+            Workspace.id == "ws-apex-101",
+            Workspace.slug == "apex-staffing"
+        )
     ).first()
     if not workspace:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Default workspace is not provisioned. Restart the backend to initialize it."
-        )
+        workspace = ensure_default_workspace(db)
+        db.commit()
+        db.refresh(workspace)
     return workspace
 
 

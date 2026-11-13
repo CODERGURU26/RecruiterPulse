@@ -39,6 +39,24 @@ class GoogleSheetsWorker:
 
         return sheet_id, gid
 
+    @staticmethod
+    def _values_to_dataframe(values: list[list[Any]]) -> pd.DataFrame:
+        if not values or len(values) < 2:
+            return pd.DataFrame()
+
+        width = max(len(row) for row in values)
+        headers = list(values[0]) + [""] * (width - len(values[0]))
+        headers = [
+            str(header).strip() if str(header).strip() else f"Unnamed: {index + 1}"
+            for index, header in enumerate(headers)
+        ]
+        data_rows = values[1:]
+        padded_rows = [
+            list(row) + [""] * (width - len(row))
+            for row in data_rows
+        ]
+        return pd.DataFrame(padded_rows, columns=headers)
+
     @classmethod
     def fetch_via_service_account(
         cls,
@@ -88,14 +106,7 @@ class GoogleSheetsWorker:
         ).execute()
 
         values = result.get("values", [])
-        if not values or len(values) < 2:
-            return pd.DataFrame()
-
-        headers = values[0]
-        data_rows = values[1:]
-        # Pad shorter rows
-        padded_rows = [row + [""] * (len(headers) - len(row)) for row in data_rows]
-        return pd.DataFrame(padded_rows, columns=headers)
+        return cls._values_to_dataframe(values)
 
     @classmethod
     async def fetch_via_web_export(

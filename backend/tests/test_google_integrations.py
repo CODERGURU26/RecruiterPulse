@@ -30,6 +30,21 @@ class TestGoogleIntegrations(unittest.TestCase):
         self.assertEqual(sid3, "bare_sheet_id_only_123")
         self.assertIsNone(gid3)
 
+    def test_google_sheets_rows_wider_than_header_are_preserved(self):
+        dataframe = GoogleSheetsWorker._values_to_dataframe([
+            ["Date", "Calling Status"],
+            ["13/11/2026", "Connected", "extra cell"]
+        ])
+
+        self.assertEqual(
+            dataframe.columns.tolist(),
+            ["Date", "Calling Status", "Unnamed: 3"]
+        )
+        self.assertEqual(
+            dataframe.iloc[0].tolist(),
+            ["13/11/2026", "Connected", "extra cell"]
+        )
+
     def test_google_calendar_tomorrow_window(self):
         """Tests calculation of tomorrow's 00:00 to 23:59:59 window in IST."""
         ref_date = date(2026, 11, 12)

@@ -29,6 +29,7 @@ export interface SummaryTotals {
   connected_rate: number;
   next_day_interviews: number;
   active_recruiters_count?: number;
+  calendar_sync_warnings?: string[];
 }
 
 export interface HourlyReport {

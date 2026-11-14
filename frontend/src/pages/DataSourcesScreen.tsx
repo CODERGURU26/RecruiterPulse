@@ -39,6 +39,9 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
   const [liveRecruiterName, setLiveRecruiterName] = useState('');
   const [selectedRecruiter, setSelectedRecruiter] = useState(AUTO_DETECT_RECRUITERS);
   const [recruiters, setRecruiters] = useState<Recruiter[]>([]);
+  const [calendarIds, setCalendarIds] = useState<Record<string, string>>({});
+  const [savingCalendarId, setSavingCalendarId] = useState<string | null>(null);
+  const [calendarMessage, setCalendarMessage] = useState<string | null>(null);
   const [liveSources, setLiveSources] = useState<LiveDataSource[]>([]);
   const [isRegisteringLiveSheet, setIsRegisteringLiveSheet] = useState(false);
   const [liveSyncMessage, setLiveSyncMessage] = useState<string | null>(null);
@@ -54,7 +57,12 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
 
   useEffect(() => {
     api.getRecruiters(workspaceId)
-      .then(setRecruiters)
+      .then((items) => {
+        setRecruiters(items);
+        setCalendarIds(Object.fromEntries(
+          items.map((recruiter) => [recruiter.id, recruiter.calendar_identifier || ''])
+        ));
+      })
       .catch((err: Error) => setErrorMessage(`Could not load recruiter roster: ${err.message}`));
     api.getDataSources(workspaceId)
       .then(setLiveSources)
@@ -201,6 +209,41 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
       setErrorMessage(`Could not disconnect the sheet: ${detail}`);
     } finally {
       setDeletingSourceId(null);
+    }
+  };
+
+  const handleSaveCalendarId = async (recruiter: Recruiter) => {
+    const calendarId = calendarIds[recruiter.id]?.trim() || '';
+    if (!calendarId) {
+      setErrorMessage(`Enter a Google Calendar ID for ${recruiter.full_name}.`);
+      return;
+    }
+
+    setErrorMessage(null);
+    setCalendarMessage(null);
+    setSavingCalendarId(recruiter.id);
+    try {
+      const updatedRecruiter = await api.updateRecruiterCalendar(
+        workspaceId,
+        recruiter.id,
+        calendarId
+      );
+      setRecruiters((current) => current.map((item) =>
+        item.id === recruiter.id ? updatedRecruiter : item
+      ));
+      setCalendarIds((current) => ({
+        ...current,
+        [recruiter.id]: updatedRecruiter.calendar_identifier || ''
+      }));
+      setCalendarMessage(`Calendar saved for ${recruiter.full_name}. Run Sync Live Sheets to fetch tomorrow's interviews.`);
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error
+          ? `Could not save calendar for ${recruiter.full_name}: ${err.message}`
+          : `Could not save calendar for ${recruiter.full_name}.`
+      );
+    } finally {
+      setSavingCalendarId(null);
     }
   };
 
@@ -472,6 +515,47 @@ export const DataSourcesScreen: React.FC<DataSourcesScreenProps> = ({
           </div>
         </div>
       )}
+
+      <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+        <div>
+          <h2 className="text-base font-bold text-slate-900">Recruiter interview calendars</h2>
+          <p className="text-xs text-slate-500 mt-1">
+            Share each calendar with the service-account email above as “See all event details,” then enter its calendar ID. RecruiterPulse reads events for tomorrow in the workspace timezone.
+          </p>
+        </div>
+        {calendarMessage && <p role="status" className="text-xs font-semibold text-emerald-700">{calendarMessage}</p>}
+        {recruiters.length === 0 ? (
+          <p className="text-sm text-slate-500">No active recruiters are available.</p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {recruiters.map((recruiter) => (
+              <div key={recruiter.id} className="py-3 flex flex-col sm:flex-row sm:items-end gap-3">
+                <label className="flex-1 text-xs font-semibold text-slate-700">
+                  {recruiter.full_name} calendar ID
+                  <input
+                    type="text"
+                    value={calendarIds[recruiter.id] ?? ''}
+                    onChange={(event) => setCalendarIds((current) => ({
+                      ...current,
+                      [recruiter.id]: event.target.value
+                    }))}
+                    placeholder="recruiter@yourcompany.com"
+                    className="mt-1 block w-full rounded-xl border border-slate-200 p-2.5 text-sm font-normal focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveCalendarId(recruiter)}
+                  disabled={savingCalendarId === recruiter.id}
+                  className="rounded-xl bg-brand-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-brand-700 disabled:opacity-50"
+                >
+                  {savingCalendarId === recruiter.id ? 'Saving...' : 'Save Calendar'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Uploaded File Processing Results Banner */}
       {uploadResult && (

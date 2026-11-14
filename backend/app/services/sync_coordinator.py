@@ -160,8 +160,40 @@ class SyncCoordinator:
             tz_name=workspace.timezone
         )
 
+        calendar_events = []
+        calendar_warnings = []
+        call_reporting_recruiters = {
+            recruiter_id
+            for recruiter_id, metrics in recruiter_metrics_map.items()
+            if metrics.total_calls > 0
+        }
+        for recruiter in recruiter_dicts:
+            if recruiter["id"] not in call_reporting_recruiters:
+                continue
+            calendar_id = (recruiter.get("calendar_identifier") or "").strip()
+            if not calendar_id:
+                calendar_warnings.append(
+                    f"{recruiter['full_name']}: no Google Calendar ID configured."
+                )
+                continue
+            try:
+                recruiter_events = await GoogleCalendarWorker.fetch_live_calendar_events_async(
+                    calendar_id,
+                    time_min,
+                    time_max
+                )
+                for event in recruiter_events:
+                    calendar_events.append({
+                        **event,
+                        "_recruiterpulse_calendar_recruiter_id": recruiter["id"]
+                    })
+            except Exception as exc:
+                calendar_warnings.append(
+                    f"{recruiter['full_name']}: calendar could not be read ({exc})."
+                )
+
         calendar_result = GoogleCalendarWorker.process_calendar_events(
-            events=[],  # Real Google API events when configured, or empty
+            events=calendar_events,
             recruiters=recruiter_dicts,
             target_date=tomorrow_date
         )
@@ -252,7 +284,8 @@ class SyncCoordinator:
             "not_connected_calls": not_connected_calls,
             "connected_rate": team_rate,
             "next_day_interviews": total_interviews + calendar_result.unassigned_count,
-            "active_recruiters_count": active_recruiters_count
+            "active_recruiters_count": active_recruiters_count,
+            "calendar_sync_warnings": calendar_warnings
         }
 
         # 8. Log Audit Event

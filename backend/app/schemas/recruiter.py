@@ -9,6 +9,10 @@ class RecruiterCreate(BaseModel):
     calendar_identifier: Optional[str] = None
 
 
+class RecruiterCalendarUpdate(BaseModel):
+    calendar_identifier: Optional[str] = None
+
+
 class RecruiterResponse(BaseModel):
     id: str
     workspace_id: str
@@ -20,4 +24,3 @@ class RecruiterResponse(BaseModel):
 
     class Config:
         from_attributes = True
-

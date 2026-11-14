@@ -16,7 +16,11 @@ from app.models import (
     AuditAction,
 )
 from app.schemas.workspace import WorkspaceCreate, WorkspaceResponse
-from app.schemas.recruiter import RecruiterCreate, RecruiterResponse
+from app.schemas.recruiter import (
+    RecruiterCalendarUpdate,
+    RecruiterCreate,
+    RecruiterResponse
+)
 from app.services.workspace_bootstrap import ensure_default_workspace
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces & Onboarding"])
@@ -139,3 +143,31 @@ def list_recruiters(workspace_id: str, db: Session = Depends(get_db)):
         RecruiterProfile.workspace_id == workspace_id,
         RecruiterProfile.is_active == True
     ).all()
+
+
+@router.patch(
+    "/{workspace_id}/recruiters/{recruiter_id}/calendar",
+    response_model=RecruiterResponse
+)
+def update_recruiter_calendar(
+    workspace_id: str,
+    recruiter_id: str,
+    payload: RecruiterCalendarUpdate,
+    db: Session = Depends(get_db)
+):
+    """Sets or clears the Google Calendar ID used for read-only interview sync."""
+    recruiter = db.query(RecruiterProfile).filter(
+        RecruiterProfile.workspace_id == workspace_id,
+        RecruiterProfile.id == recruiter_id
+    ).first()
+    if not recruiter:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recruiter not found in this workspace."
+        )
+
+    calendar_identifier = (payload.calendar_identifier or "").strip()
+    recruiter.calendar_identifier = calendar_identifier or None
+    db.commit()
+    db.refresh(recruiter)
+    return recruiter

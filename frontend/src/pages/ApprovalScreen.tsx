@@ -254,6 +254,23 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
       </div>
 
       {/* Summary KPI Cards */}
+      {(report.summary_totals.calendar_sync_warnings?.length ?? 0) > 0 && (
+        <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-semibold">Tomorrow&apos;s interview counts may be incomplete.</p>
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                {report.summary_totals.calendar_sync_warnings?.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs">Configure the calendar ID and share the calendar with the service account, then sync again.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Calls */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">

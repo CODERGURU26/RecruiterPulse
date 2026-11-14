@@ -1,5 +1,6 @@
 import os
 import re
+import asyncio
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
@@ -42,14 +43,15 @@ class GoogleCalendarWorker:
         tz_name: str = "Asia/Kolkata"
     ) -> Tuple[datetime, datetime, date]:
         """
-        Calculates tomorrow's start (00:00:00) and end (23:59:59) ISO timestamps in IST.
+        Calculates tomorrow's full-day window as [midnight, next midnight) in the workspace timezone.
         """
         tz = ZoneInfo(tz_name)
         base_date = reference_date or datetime.now(tz).date()
         tomorrow_date = base_date + timedelta(days=1)
 
         time_min = datetime(tomorrow_date.year, tomorrow_date.month, tomorrow_date.day, 0, 0, 0, tzinfo=tz)
-        time_max = datetime(tomorrow_date.year, tomorrow_date.month, tomorrow_date.day, 23, 59, 59, tzinfo=tz)
+        next_date = tomorrow_date + timedelta(days=1)
+        time_max = datetime(next_date.year, next_date.month, next_date.day, 0, 0, 0, tzinfo=tz)
 
         return time_min, time_max, tomorrow_date
 
@@ -69,6 +71,12 @@ class GoogleCalendarWorker:
         # Exclude cancelled events
         if event.get("status") == "cancelled":
             return None
+
+        source_calendar_recruiter_id = event.get("_recruiterpulse_calendar_recruiter_id")
+        if source_calendar_recruiter_id and any(
+            rec["id"] == source_calendar_recruiter_id for rec in recruiters
+        ):
+            return source_calendar_recruiter_id
 
         # Tier 1: Creator / Organizer Email
         creator_email = (event.get("creator", {}).get("email") or "").lower().strip()
@@ -147,7 +155,13 @@ class GoogleCalendarWorker:
             for att in ev.get("attendees", []):
                 if att.get("responseStatus") == "declined":
                     att_email = (att.get("email") or "").lower().strip()
-                    if any((rec.get("email") or "").lower().strip() == att_email for rec in recruiters):
+                    if any(
+                        att_email in {
+                            (rec.get("email") or "").lower().strip(),
+                            (rec.get("calendar_identifier") or "").lower().strip()
+                        }
+                        for rec in recruiters
+                    ):
                         has_declined_recruiter = True
                         break
             if has_declined_recruiter:
@@ -194,12 +208,33 @@ class GoogleCalendarWorker:
         creds = service_account.Credentials.from_service_account_file(key_file, scopes=scopes)
         service = build("calendar", "v3", credentials=creds)
 
-        events_result = service.events().list(
-            calendarId=calendar_id,
-            timeMin=time_min.isoformat(),
-            timeMax=time_max.isoformat(),
-            singleEvents=True,
-            orderBy="startTime"
-        ).execute()
+        events = []
+        page_token = None
+        while True:
+            events_result = service.events().list(
+                calendarId=calendar_id,
+                timeMin=time_min.isoformat(),
+                timeMax=time_max.isoformat(),
+                singleEvents=True,
+                orderBy="startTime",
+                maxResults=2500,
+                pageToken=page_token
+            ).execute()
+            events.extend(events_result.get("items", []))
+            page_token = events_result.get("nextPageToken")
+            if not page_token:
+                return events
 
-        return events_result.get("items", [])
+    @classmethod
+    async def fetch_live_calendar_events_async(
+        cls,
+        calendar_id: str,
+        time_min: datetime,
+        time_max: datetime
+    ) -> List[Dict[str, Any]]:
+        return await asyncio.to_thread(
+            cls.fetch_live_calendar_events,
+            calendar_id,
+            time_min,
+            time_max
+        )

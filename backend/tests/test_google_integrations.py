@@ -58,16 +58,28 @@ class TestGoogleIntegrations(unittest.TestCase):
         self.assertEqual(dataframe["Calling Status (2)"].iloc[0], "Not Connected")
 
     def test_google_calendar_tomorrow_window(self):
-        """Tests calculation of tomorrow's 00:00 to 23:59:59 window in IST."""
+        """Tests tomorrow's full-day half-open window in IST."""
         ref_date = date(2026, 11, 12)
         t_min, t_max, tomorrow = GoogleCalendarWorker.get_tomorrow_window(ref_date, "Asia/Kolkata")
 
         self.assertEqual(tomorrow, date(2026, 11, 13))
         self.assertEqual(t_min.hour, 0)
         self.assertEqual(t_min.minute, 0)
-        self.assertEqual(t_max.hour, 23)
-        self.assertEqual(t_max.minute, 59)
+        self.assertEqual(t_max.date(), date(2026, 11, 14))
+        self.assertEqual(t_max.hour, 0)
+        self.assertEqual(t_max.minute, 0)
         self.assertEqual(str(t_min.tzinfo), "Asia/Kolkata")
+
+    def test_sunday_report_targets_monday_interviews(self):
+        sunday = date(2026, 11, 15)
+        time_min, time_max, target_date = GoogleCalendarWorker.get_tomorrow_window(
+            sunday,
+            "Asia/Kolkata"
+        )
+
+        self.assertEqual(target_date, date(2026, 11, 16))
+        self.assertEqual(time_min.date(), date(2026, 11, 16))
+        self.assertEqual(time_max.date(), date(2026, 11, 17))
 
     def test_google_calendar_attribution_hierarchy(self):
         """Tests PRD v1.1 4-Tier Attribution Hierarchy and deduplication."""

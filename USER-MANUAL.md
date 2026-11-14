@@ -52,7 +52,9 @@ The backend uses a Google service account to read private spreadsheets. It needs
 
    Replace the example email and path with your actual values. Use the interval already set in your `.env`; `5` means sync every five minutes. The key path is the location of the downloaded JSON file, not its contents.
 4. In Google Sheets, share every workbook you need to sync with that exact service-account email as **Viewer**.
-5. Restart the backend after changing `.env`.
+5. In Google Cloud Console, enable the **Google Calendar API** in the same project if you plan to sync recruiter interviews.
+6. In Google Calendar, share each recruiter's calendar with the same service-account email as **See all event details** (read-only). Find each calendar ID in Google Calendar **Settings & sharing → Integrate calendar → Calendar ID**.
+7. Restart the backend after changing `.env` or Google Cloud API settings.
 
 The app's **Spreadsheets & Data Sources** page shows the email to share with. It also has a copy button.
 
@@ -79,7 +81,16 @@ Whole-workbook discovery requires the configured Google service-account key and 
 
 The **Registered live recruiter sheets** list shows each recruiter/tab and its last sync time or any sync error. Use **Disconnect** to remove a Google Sheet from RecruiterPulse. This stops its live sync and removes its column mappings, but does not delete the Google tab or historical reports. You can register that tab again later.
 
-## 4. Daily recruiter workflow
+## 4. Connect recruiter calendars
+
+1. On **Spreadsheets & Data Sources**, find **Recruiter interview calendars**.
+2. For each recruiter whose interview count should be reported, paste that recruiter's Calendar ID and choose **Save Calendar**. A calendar ID is often an email address, but use the value shown under **Integrate calendar** in Google Calendar.
+3. Ensure the calendar is shared with the service-account email as **See all event details**. Do not share passwords or grant edit access.
+4. In **Hourly MIS Review & Approval**, choose **Sync Live Sheets** to refresh calls and fetch interviews. Scheduled report syncs fetch them automatically.
+
+RecruiterPulse counts non-cancelled events from midnight to midnight **tomorrow**, in the workspace timezone. For a Sunday report, tomorrow is Monday. Calendar counts appear on the corresponding recruiter row and in the team total. If a calendar is missing or inaccessible, the MIS report displays a warning; correct the calendar ID or sharing permission and sync again. Recruiters without a counted call row remain omitted from that day's report.
+
+## 5. Daily recruiter workflow
 
 1. Recruiters continue updating their existing Google Sheets call logs. Keep the date, call status, and (where used) role columns populated consistently.
 2. Leave the backend running. It refreshes registered sheets automatically at the configured interval.
@@ -95,11 +106,11 @@ Recruiters with no counted calls for the reporting date are left out of the repo
 
 The reporting date uses the workspace timezone (currently Asia/Kolkata). Check that the sheet's dates represent the day the calls were made.
 
-## 5. One-time imports
+## 6. One-time imports
 
 On **Spreadsheets & Data Sources**, **Analyze Google Sheet** imports the selected tab once and processes it immediately; it does not register recurring sync. Excel, XLS, and CSV uploads are also one-time imports. Use these for ad-hoc files, not as a substitute for registering live recruiter tabs.
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 - **“Default workspace is not provisioned”**: make sure the backend is running from the `backend` folder with `python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000`, then refresh the page.
 - **Google HTTP 401/403 or “caller does not have permission”**: confirm the Google Sheets API is enabled, the key path points to a valid JSON key, the email in `.env` matches the key's service-account email, and the spreadsheet is shared with that email as Viewer. Restart the backend after editing `.env`.
@@ -107,7 +118,8 @@ On **Spreadsheets & Data Sources**, **Analyze Google Sheet** imports the selecte
 - **Recruiter name does not match the selected tab**: the app checks a detected `Recruiter` column before registering, to avoid attributing calls to the wrong person. Enter a recruiter name listed in that tab, or select the intended recruiter tab and copy its URL again.
 - **Required date/status columns not detected**: check that the selected tab has a header row and recognizable date and call-status column names.
 - **Sync failed**: open **Spreadsheets & Data Sources** and read the error shown beside the source. Fix the sheet access, URL, or column issue, then use **Sync Live Sheets** to retry. A failed sheet sync should not be treated as a successful zero-call report.
+- **Calendar count is zero or has a warning**: verify that the Calendar API is enabled, the entered Calendar ID is exact, and the calendar is shared with the configured service-account email as **See all event details**. Then run **Sync Live Sheets** again.
 - **Counts differ from the sheet**: compare only the target day's rows; check blank statuses, date formats, duplicate candidate/status rows, and whether every intended recruiter tab is registered. Inspect the totals before approving.
 - **Browser shows old data**: confirm both backend and frontend terminals are still running, wait for the next refresh interval, or use **Sync Live Sheets**.
 
-Do not send service-account JSON keys or candidate names, phone numbers, or emails when asking for help. Interview counts are not live because Google Calendar ingestion is not configured in the current workflow.
+Do not send service-account JSON keys or candidate names, phone numbers, or emails when asking for help. Calendar interview counts require the Google Calendar API to be enabled, calendar IDs configured, and the calendars shared with the service account.

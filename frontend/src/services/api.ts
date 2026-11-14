@@ -33,6 +33,18 @@ export const api = {
     return request(`${API_BASE}/workspaces/${workspaceId}/recruiters`);
   },
 
+  updateRecruiterCalendar(
+    workspaceId: string,
+    recruiterId: string,
+    calendarIdentifier: string
+  ): Promise<Recruiter> {
+    return request(`${API_BASE}/workspaces/${workspaceId}/recruiters/${recruiterId}/calendar`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calendar_identifier: calendarIdentifier })
+    });
+  },
+
   getDataSources(workspaceId: string): Promise<LiveDataSource[]> {
     return request(`${API_BASE}/data-sources/${workspaceId}`);
   },

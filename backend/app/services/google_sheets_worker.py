@@ -2,6 +2,7 @@ import re
 import os
 import io
 import json
+import asyncio
 from typing import Optional, Tuple, Dict, Any, List
 import pandas as pd
 import httpx
@@ -196,10 +197,11 @@ class GoogleSheetsWorker:
         # Use private service-account access when configured; never silently fall
         # back to an arbitrary first tab or public access after an auth failure.
         if settings.GOOGLE_SERVICE_ACCOUNT_KEY_PATH:
-            return cls.fetch_via_service_account(
+            return await asyncio.to_thread(
+                cls.fetch_via_service_account,
                 sheet_id,
-                tab_name=tab_name,
-                gid=gid
+                tab_name,
+                gid
             )
 
         # Public viewer links can only be read when the URL selects an exact tab.

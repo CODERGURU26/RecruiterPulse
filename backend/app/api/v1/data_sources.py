@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from urllib.parse import urlparse
+import asyncio
 import io
 import pandas as pd
 
@@ -739,7 +740,10 @@ async def register_google_workbook(
 
     spreadsheet_id, _ = GoogleSheetsWorker.extract_sheet_id(payload.sheet_url)
     try:
-        tabs = GoogleSheetsWorker.list_spreadsheet_tabs(spreadsheet_id)
+        tabs = await asyncio.to_thread(
+            GoogleSheetsWorker.list_spreadsheet_tabs,
+            spreadsheet_id
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -770,9 +774,10 @@ async def register_google_workbook(
             continue
         tab_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit?gid={tab['gid']}"
         try:
-            dataframe = GoogleSheetsWorker.fetch_via_service_account(
+            dataframe = await asyncio.to_thread(
+                GoogleSheetsWorker.fetch_via_service_account,
                 spreadsheet_id,
-                tab_name=tab_name
+                tab_name
             )
             detections = ColumnDetector.analyze_dataframe(dataframe)
             mappings = {

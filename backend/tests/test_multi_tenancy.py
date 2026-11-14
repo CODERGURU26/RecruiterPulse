@@ -1,6 +1,9 @@
 import unittest
 from datetime import date
-from app.core.database import Base, engine, SessionLocal
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from app.core.database import Base
 from app.models import (
     Workspace,
     User,
@@ -18,20 +21,14 @@ from app.api.v1.reports import get_pending_report, get_latest_approved_report
 class TestMultiTenancyIsolation(unittest.TestCase):
     """Verifies that complete row-level tenant isolation is maintained across agencies."""
 
-    @classmethod
-    def setUpClass(cls):
-        Base.metadata.create_all(bind=engine)
-
     def setUp(self):
-        self.db = SessionLocal()
-        # Clean test tables
-        self.db.query(RecruiterDailyMetric).delete()
-        self.db.query(HourlyReport).delete()
-        self.db.query(DataSource).delete()
-        self.db.query(RecruiterProfile).delete()
-        self.db.query(User).delete()
-        self.db.query(Workspace).delete()
-        self.db.commit()
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool
+        )
+        Base.metadata.create_all(bind=self.engine)
+        self.db = sessionmaker(bind=self.engine)()
 
         # Agency A
         self.ws_a = Workspace(name="Agency Alpha", slug="agency-alpha")
@@ -55,6 +52,8 @@ class TestMultiTenancyIsolation(unittest.TestCase):
 
     def tearDown(self):
         self.db.close()
+        Base.metadata.drop_all(bind=self.engine)
+        self.engine.dispose()
 
     def test_recruiter_isolation(self):
         """Agency Alpha must only see its own recruiters; Agency Beta must only see its own."""
@@ -95,4 +94,3 @@ class TestMultiTenancyIsolation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

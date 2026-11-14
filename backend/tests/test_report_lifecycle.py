@@ -1,7 +1,10 @@
 import unittest
 from datetime import date
 from fastapi import HTTPException
-from app.core.database import Base, engine, SessionLocal
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from app.core.database import Base
 from app.models import (
     Workspace,
     User,
@@ -31,19 +34,14 @@ from app.schemas.report import (
 class TestReportLifecycle(unittest.TestCase):
     """Exhaustive tests for the MIS approval lifecycle, rejections, and audit trails."""
 
-    @classmethod
-    def setUpClass(cls):
-        Base.metadata.create_all(bind=engine)
-
     def setUp(self):
-        self.db = SessionLocal()
-        self.db.query(AuditLog).delete()
-        self.db.query(RecruiterDailyMetric).delete()
-        self.db.query(HourlyReport).delete()
-        self.db.query(User).delete()
-        self.db.query(RecruiterProfile).delete()
-        self.db.query(Workspace).delete()
-        self.db.commit()
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool
+        )
+        Base.metadata.create_all(bind=self.engine)
+        self.db = sessionmaker(bind=self.engine)()
 
         # Workspace & MIS User
         self.ws = Workspace(name="Talent Bridge", slug="talent-bridge")
@@ -62,6 +60,8 @@ class TestReportLifecycle(unittest.TestCase):
 
     def tearDown(self):
         self.db.close()
+        Base.metadata.drop_all(bind=self.engine)
+        self.engine.dispose()
 
     def test_approval_workflow_and_audit(self):
         """Verifies report creation -> review -> approval -> audit log creation."""

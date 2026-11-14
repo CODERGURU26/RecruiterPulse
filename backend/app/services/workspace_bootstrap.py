@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models import (
     DEFAULT_INDIAN_TAXONOMY_PRESETS,
-    RecruiterProfile,
     StatusTaxonomy,
     User,
     UserRole,
@@ -61,29 +60,6 @@ def ensure_default_workspace(db: Session) -> Workspace:
                 hashed_password="hashed_secure_password",
                 full_name="Pooja Kulkarni (MIS Lead)",
                 role=UserRole.MIS_EXECUTIVE
-            ))
-
-    for name, email in (
-        ("Priya Sharma", "priya@apexstaffing.in"),
-        ("Rahul Verma", "rahul@apexstaffing.in"),
-        ("Amit Patel", "amit@apexstaffing.in"),
-    ):
-        existing_recruiter = db.query(RecruiterProfile).filter(
-            RecruiterProfile.workspace_id == workspace.id,
-            (RecruiterProfile.email == email) |
-            (RecruiterProfile.full_name == name)
-        ).first()
-        if existing_recruiter:
-            if not existing_recruiter.email:
-                existing_recruiter.email = email
-            if not existing_recruiter.calendar_identifier:
-                existing_recruiter.calendar_identifier = email
-        else:
-            db.add(RecruiterProfile(
-                workspace_id=workspace.id,
-                full_name=name,
-                email=email,
-                calendar_identifier=email
             ))
 
     db.flush()

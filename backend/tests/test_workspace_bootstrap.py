@@ -91,7 +91,7 @@ class TestWorkspaceBootstrap(unittest.TestCase):
             )
             self.assertEqual(
                 db.query(RecruiterProfile).filter_by(workspace_id="ws-apex-101").count(),
-                3
+                0
             )
             self.assertEqual(
                 db.query(User).filter_by(id="usr-admin", workspace_id="ws-apex-101").count(),

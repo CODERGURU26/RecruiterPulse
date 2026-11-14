@@ -9,6 +9,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.models import (
+    AuditAction,
+    AuditLog,
     CallCategory,
     ColumnMapping,
     DataSource,
@@ -132,6 +134,43 @@ class TestSyncCoordinator(unittest.IsolatedAsyncioTestCase):
                 ["Active Recruiter"]
             )
             self.assertEqual(report.metrics[0].job_roles, ["active-sheet role"])
+
+            edited_metric = report.metrics[0]
+            edited_metric.connected_calls = 7
+            edited_metric.not_connected_calls = 2
+            edited_metric.total_calls = 9
+            edited_metric.connected_rate = 77.78
+            report.summary_totals = {
+                **report.summary_totals,
+                "connected_calls": 7,
+                "not_connected_calls": 2,
+                "total_calls": 9,
+                "connected_rate": 77.78
+            }
+            db.add(AuditLog(
+                workspace_id=workspace.id,
+                action=AuditAction.REPORT_EDITED,
+                details={"report_id": report.id, "metrics": []}
+            ))
+            db.commit()
+            edited_metric_id = edited_metric.id
+
+            with patch(
+                "app.services.sync_coordinator.GoogleSheetsWorker.fetch_sheet_dataframe",
+                new=AsyncMock(side_effect=fetch_sheet)
+            ):
+                refreshed = await SyncCoordinator.run_workspace_sync(
+                    workspace_id=workspace.id,
+                    db=db,
+                    override_date=target_day,
+                    override_slot="12:00"
+                )
+
+            self.assertEqual(refreshed.id, report.id)
+            self.assertEqual(refreshed.summary_totals["total_calls"], 9)
+            self.assertEqual(refreshed.metrics[0].id, edited_metric_id)
+            self.assertEqual(refreshed.metrics[0].connected_calls, 7)
+            self.assertEqual(refreshed.metrics[0].not_connected_calls, 2)
         finally:
             db.close()
             Base.metadata.drop_all(bind=engine)

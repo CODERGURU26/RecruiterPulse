@@ -2,6 +2,7 @@ import {
   HourlyReport,
   LiveDataSource,
   Recruiter,
+  RecruiterMetricEdit,
   WorkbookRegistrationResult,
   Workspace
 } from '../types';
@@ -75,6 +76,18 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ approver_user_id: approverUserId })
+    });
+  },
+
+  editDraftReport(
+    reportId: string,
+    metrics: RecruiterMetricEdit[],
+    approverUserId = DEFAULT_APPROVER_USER_ID
+  ): Promise<HourlyReport> {
+    return request(`${API_BASE}/reports/${reportId}/draft`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approver_user_id: approverUserId, metrics })
     });
   },
 

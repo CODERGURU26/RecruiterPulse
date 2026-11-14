@@ -166,6 +166,21 @@ class SyncCoordinator:
             target_date=tomorrow_date
         )
 
+        report = db.query(HourlyReport).filter(
+            HourlyReport.workspace_id == workspace.id,
+            HourlyReport.reporting_date == reporting_date,
+            HourlyReport.hour_slot == hour_slot
+        ).first()
+        if report and report.status == ReportStatus.DRAFT_PENDING_APPROVAL:
+            edit_audits = db.query(AuditLog).filter(
+                AuditLog.workspace_id == workspace.id,
+                AuditLog.action == AuditAction.REPORT_EDITED
+            ).all()
+            if any((audit.details or {}).get("report_id") == report.id for audit in edit_audits):
+                db.commit()
+                db.refresh(report)
+                return report
+
         # 5. Handle Superseding of Older Unapproved Snapshots for Today
         older_drafts = db.query(HourlyReport).filter(
             HourlyReport.workspace_id == workspace.id,
@@ -177,12 +192,6 @@ class SyncCoordinator:
             old.status = ReportStatus.SUPERSEDED
 
         # 6. Create or Update Hourly Snapshot
-        report = db.query(HourlyReport).filter(
-            HourlyReport.workspace_id == workspace.id,
-            HourlyReport.reporting_date == reporting_date,
-            HourlyReport.hour_slot == hour_slot
-        ).first()
-
         if not report:
             report = HourlyReport(
                 workspace_id=workspace.id,

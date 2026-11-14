@@ -79,16 +79,17 @@ Whole-workbook discovery requires the configured Google service-account key and 
 
 The **Registered live recruiter sheets** list shows each recruiter/tab and its last sync time or any sync error. Use **Disconnect** to remove a Google Sheet from RecruiterPulse. This stops its live sync and removes its column mappings, but does not delete the Google tab or historical reports. You can register that tab again later.
 
-The **Registered live recruiter sheets** list shows the source's last sync time or any sync error. It refreshes while the page is open.
-
 ## 4. Daily recruiter workflow
 
 1. Recruiters continue updating their existing Google Sheets call logs. Keep the date, call status, and (where used) role columns populated consistently.
 2. Leave the backend running. It refreshes registered sheets automatically at the configured interval.
 3. Open **Hourly MIS Review & Approval**. The report view refreshes periodically while open. To fetch immediately, choose **Sync Live Sheets**.
 4. Check the reporting date, recruiter list, roles, connected calls, not-connected calls, and total calls before approving.
-5. Choose **Approve** to publish the report to the management dashboard. Choose **Reject** and enter a reason if it needs correction.
-6. **Copy for WhatsApp** copies the displayed report summary.
+5. If any row looks wrong, choose **Edit report**. Update roles (comma-separated), connected calls, not-connected calls, and tomorrow's interviews. Totals and connection rates recalculate automatically. Save the edits or cancel them.
+6. Choose **Approve** to publish the report to the management dashboard. Choose **Reject** and enter a reason if it needs correction.
+7. **Copy for WhatsApp** copies the displayed report summary.
+
+Saved edits are recorded in the audit log and are preserved from automatic refreshes for that report slot. A later hourly report slot is generated from the live sheets again. Once approved or rejected, a report can no longer be edited.
 
 Recruiters with no counted calls for the reporting date are left out of the report. Blank call statuses do not count as calls. A row is counted when it has a valid reporting date and a classifiable call status; `Not Connected` counts as not connected, not connected. Totals equal connected plus not-connected calls. Roles are drawn from counted call rows. When a candidate identifier is available, duplicate candidate/status rows may be removed.
 

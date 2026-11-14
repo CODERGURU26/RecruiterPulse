@@ -16,6 +16,7 @@ from app.models import (
 from app.schemas.report import (
     HourlyReportResponse,
     RecruiterMetricResponse,
+    ReportEditRequest,
     ReportApprovalRequest,
     ReportRejectionRequest,
     WhatsAppExportResponse,
@@ -96,6 +97,106 @@ def get_latest_approved_report(workspace_id: str = Query(...), db: Session = Dep
     return serialize_report(report)
 
 
+@router.put("/{report_id}/draft", response_model=HourlyReportResponse)
+def edit_draft_report(
+    report_id: str,
+    payload: ReportEditRequest,
+    db: Session = Depends(get_db)
+):
+    """Updates report metrics while a report is still awaiting MIS approval."""
+    report = db.query(HourlyReport).filter(HourlyReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
+    if report.status != ReportStatus.DRAFT_PENDING_APPROVAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only reports awaiting approval can be edited."
+        )
+
+    user = db.query(User).filter(
+        User.id == payload.approver_user_id,
+        User.workspace_id == report.workspace_id
+    ).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="MIS user not found in this workspace.")
+
+    metrics_by_id = {metric.id: metric for metric in report.metrics}
+    submitted_ids = [metric.id for metric in payload.metrics]
+    if len(submitted_ids) != len(set(submitted_ids)) or set(submitted_ids) != set(metrics_by_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Submit each recruiter metric in this report exactly once."
+        )
+
+    edited_details = []
+    total_calls = 0
+    connected_calls = 0
+    not_connected_calls = 0
+    total_interviews = 0
+
+    for edit in payload.metrics:
+        metric = metrics_by_id[edit.id]
+        connected = edit.connected_calls
+        not_connected = edit.not_connected_calls
+        total = connected + not_connected
+        roles = list(dict.fromkeys(
+            role.strip() for role in edit.job_roles if role.strip()
+        ))
+
+        if total == 0:
+            edited_details.append({
+                "metric_id": metric.id,
+                "connected_calls": 0,
+                "not_connected_calls": 0,
+                "job_roles": roles,
+                "next_day_interviews": 0,
+                "removed_from_report": True
+            })
+            db.delete(metric)
+            continue
+
+        metric.connected_calls = connected
+        metric.not_connected_calls = not_connected
+        metric.total_calls = total
+        metric.connected_rate = round(connected / total * 100, 2) if total else 0.0
+        metric.job_roles = roles
+        metric.next_day_interviews = edit.next_day_interviews
+
+        edited_details.append({
+            "metric_id": metric.id,
+            "connected_calls": connected,
+            "not_connected_calls": not_connected,
+            "job_roles": roles,
+            "next_day_interviews": edit.next_day_interviews
+        })
+
+        total_calls += total
+        connected_calls += connected
+        not_connected_calls += not_connected
+        total_interviews += edit.next_day_interviews + metric.unassigned_interviews
+
+    report.summary_totals = {
+        **(report.summary_totals or {}),
+        "total_calls": total_calls,
+        "connected_calls": connected_calls,
+        "not_connected_calls": not_connected_calls,
+        "connected_rate": round(connected_calls / total_calls * 100, 2) if total_calls else 0.0,
+        "next_day_interviews": total_interviews,
+        "active_recruiters_count": sum(1 for edit in payload.metrics if edit.connected_calls + edit.not_connected_calls > 0)
+    }
+
+    audit = AuditLog(
+        workspace_id=report.workspace_id,
+        actor_user_id=user.id,
+        action=AuditAction.REPORT_EDITED,
+        details={"report_id": report.id, "metrics": edited_details}
+    )
+    db.add(audit)
+    db.commit()
+    db.refresh(report)
+    return serialize_report(report)
+
+
 @router.post("/{report_id}/approve", response_model=HourlyReportResponse)
 def approve_report(report_id: str, payload: ReportApprovalRequest, db: Session = Depends(get_db)):
     """
@@ -105,6 +206,11 @@ def approve_report(report_id: str, payload: ReportApprovalRequest, db: Session =
     report = db.query(HourlyReport).filter(HourlyReport.id == report_id).first()
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
+    if report.status != ReportStatus.DRAFT_PENDING_APPROVAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only reports awaiting approval can be approved."
+        )
 
     user = db.query(User).filter(User.id == payload.approver_user_id).first()
     if not user:
@@ -136,6 +242,11 @@ def reject_report(report_id: str, payload: ReportRejectionRequest, db: Session =
     report = db.query(HourlyReport).filter(HourlyReport.id == report_id).first()
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
+    if report.status != ReportStatus.DRAFT_PENDING_APPROVAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only reports awaiting approval can be rejected."
+        )
 
     user = db.query(User).filter(User.id == payload.approver_user_id).first()
     if not user:
@@ -192,4 +303,3 @@ def export_whatsapp(report_id: str, db: Session = Depends(get_db)):
     )
 
     return WhatsAppExportResponse(report_id=report.id, formatted_text=formatted_msg)
-

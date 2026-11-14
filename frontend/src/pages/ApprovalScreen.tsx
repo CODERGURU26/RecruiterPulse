@@ -15,9 +15,20 @@ import {
   UserCheck,
   TrendingUp,
   FileSpreadsheet,
-  RefreshCw
+  RefreshCw,
+  Pencil,
+  Save,
+  X
 } from 'lucide-react';
 import { api } from '../services/api';
+
+interface EditableMetric {
+  id: string;
+  job_roles: string;
+  connected_calls: string;
+  not_connected_calls: string;
+  next_day_interviews: string;
+}
 
 interface ApprovalScreenProps {
   report: HourlyReport;
@@ -35,6 +46,8 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [editableMetrics, setEditableMetrics] = useState<EditableMetric[] | null>(null);
+  const [isSavingEdits, setIsSavingEdits] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -94,9 +107,89 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
     }
   };
 
+  const handleStartEditing = () => {
+    setEditableMetrics(report.metrics.map((metric) => ({
+      id: metric.id,
+      job_roles: metric.job_roles.join(', '),
+      connected_calls: String(metric.connected_calls),
+      not_connected_calls: String(metric.not_connected_calls),
+      next_day_interviews: String(metric.next_day_interviews)
+    })));
+  };
+
+  const handleCancelEditing = () => setEditableMetrics(null);
+
+  const handleSaveEdits = async () => {
+    if (!editableMetrics) return;
+    const parsedMetrics = editableMetrics.map((metric) => ({
+      id: metric.id,
+      job_roles: metric.job_roles.split(',').map((role) => role.trim()).filter(Boolean),
+      connected_calls: Number(metric.connected_calls),
+      not_connected_calls: Number(metric.not_connected_calls),
+      next_day_interviews: Number(metric.next_day_interviews)
+    }));
+
+    if (parsedMetrics.some((metric) =>
+      [metric.connected_calls, metric.not_connected_calls, metric.next_day_interviews]
+        .some((value) => !Number.isInteger(value) || value < 0)
+    )) {
+      showToast('Call and interview counts must be non-negative whole numbers.');
+      return;
+    }
+
+    setIsSavingEdits(true);
+    try {
+      const updated = await api.editDraftReport(report.id, parsedMetrics);
+      onReportUpdate(updated);
+      setEditableMetrics(null);
+      showToast('Report edits saved and totals recalculated.');
+    } catch (error) {
+      showToast(error instanceof Error ? `Could not save edits: ${error.message}` : 'Could not save report edits.');
+    } finally {
+      setIsSavingEdits(false);
+    }
+  };
+
   const isPending = report.status === 'DRAFT_PENDING_APPROVAL';
   const isApproved = report.status === 'APPROVED';
   const isRejected = report.status === 'REJECTED';
+  const editById = new Map((editableMetrics || []).map((metric) => [metric.id, metric]));
+  const displayedMetrics = report.metrics.map((metric) => {
+    const edit = editById.get(metric.id);
+    if (!edit) return metric;
+    const connected = Number(edit.connected_calls) || 0;
+    const notConnected = Number(edit.not_connected_calls) || 0;
+    const total = connected + notConnected;
+    return {
+      ...metric,
+      job_roles: edit.job_roles.split(',').map((role) => role.trim()).filter(Boolean),
+      connected_calls: connected,
+      not_connected_calls: notConnected,
+      total_calls: total,
+      connected_rate: total ? Math.round((connected / total) * 10000) / 100 : 0,
+      next_day_interviews: Number(edit.next_day_interviews) || 0
+    };
+  });
+  const displayedSummary = displayedMetrics.reduce((totals, metric) => {
+    if (metric.total_calls > 0) {
+      totals.connected_calls += metric.connected_calls;
+      totals.not_connected_calls += metric.not_connected_calls;
+      totals.total_calls += metric.total_calls;
+      totals.next_day_interviews += metric.next_day_interviews + metric.unassigned_interviews;
+      totals.active_recruiters_count += 1;
+    }
+    return totals;
+  }, {
+    connected_calls: 0,
+    not_connected_calls: 0,
+    total_calls: 0,
+    connected_rate: 0,
+    next_day_interviews: 0,
+    active_recruiters_count: 0
+  });
+  displayedSummary.connected_rate = displayedSummary.total_calls
+    ? Math.round((displayedSummary.connected_calls / displayedSummary.total_calls) * 10000) / 100
+    : 0;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -168,8 +261,8 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Calls Logged</span>
             <span className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><TrendingUp className="w-4 h-4" /></span>
           </div>
-          <p className="text-3xl font-extrabold text-slate-900 mt-2">{report.summary_totals.total_calls}</p>
-          <p className="text-xs text-slate-500 mt-1">Across {report.metrics.length} active recruiters today</p>
+          <p className="text-3xl font-extrabold text-slate-900 mt-2">{displayedSummary.total_calls}</p>
+          <p className="text-xs text-slate-500 mt-1">Across {displayedSummary.active_recruiters_count} active recruiters today</p>
         </div>
 
         {/* Connected Calls */}
@@ -178,9 +271,9 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Connected Calls</span>
             <span className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><CheckCircle2 className="w-4 h-4" /></span>
           </div>
-          <p className="text-3xl font-extrabold text-emerald-600 mt-2">{report.summary_totals.connected_calls}</p>
+          <p className="text-3xl font-extrabold text-emerald-600 mt-2">{displayedSummary.connected_calls}</p>
           <p className="text-xs text-slate-500 mt-1">
-            {report.summary_totals.not_connected_calls} non-connected / attempts
+            {displayedSummary.not_connected_calls} non-connected / attempts
           </p>
         </div>
 
@@ -190,11 +283,11 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Connection Rate</span>
             <span className="p-2 bg-brand-50 text-brand-600 rounded-lg"><Sparkles className="w-4 h-4" /></span>
           </div>
-          <p className="text-3xl font-extrabold text-brand-600 mt-2">{report.summary_totals.connected_rate}%</p>
+          <p className="text-3xl font-extrabold text-brand-600 mt-2">{displayedSummary.connected_rate}%</p>
           <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2">
             <div
               className="bg-brand-600 h-1.5 rounded-full"
-              style={{ width: `${Math.min(report.summary_totals.connected_rate, 100)}%` }}
+              style={{ width: `${Math.min(displayedSummary.connected_rate, 100)}%` }}
             ></div>
           </div>
         </div>
@@ -205,7 +298,7 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Tomorrow's Interviews</span>
             <span className="p-2 bg-amber-50 text-amber-600 rounded-lg"><Calendar className="w-4 h-4" /></span>
           </div>
-          <p className="text-3xl font-extrabold text-amber-600 mt-2">{report.summary_totals.next_day_interviews}</p>
+          <p className="text-3xl font-extrabold text-amber-600 mt-2">{displayedSummary.next_day_interviews}</p>
           <p className="text-xs text-slate-500 mt-1">Calendar data is not included in file uploads</p>
         </div>
       </div>
@@ -221,6 +314,43 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
             Reporting Date: <strong className="text-slate-700">{report.reporting_date}</strong>
           </span>
         </div>
+        {isPending && (
+          <div className="flex items-center justify-between gap-3 px-6 py-3 bg-indigo-50 border-b border-indigo-100">
+            <p className="text-xs text-indigo-800">
+              {editableMetrics
+                ? 'Edit roles as comma-separated values. Team totals and rates update automatically.'
+                : 'If something looks off, edit the recruiter values before approving.'}
+            </p>
+            {editableMetrics ? (
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  onClick={handleCancelEditing}
+                  disabled={isSavingEdits}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  <X className="h-3.5 w-3.5" /> Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveEdits()}
+                  disabled={isSavingEdits}
+                  className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  <Save className="h-3.5 w-3.5" /> {isSavingEdits ? 'Saving...' : 'Save edits'}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleStartEditing}
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 border border-brand-200 hover:bg-brand-100"
+              >
+                <Pencil className="h-3.5 w-3.5" /> Edit report
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-sm">
@@ -233,10 +363,11 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
                 <th className="py-3 px-6 text-right">Total Calls</th>
                 <th className="py-3 px-6 text-center">Conn. Rate</th>
                 <th className="py-3 px-6 text-right">Interviews (Tomorrow)</th>
+                {editableMetrics && <th className="py-3 px-6 text-right">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {report.metrics.map((m: RecruiterMetric) => (
+              {displayedMetrics.map((m: RecruiterMetric) => (
                 <tr key={m.id} className="hover:bg-slate-50/60 transition-colors">
                   <td className="py-4 px-6 font-semibold text-slate-900 flex items-center space-x-3">
                     <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs">
@@ -252,12 +383,48 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
                         </span>
                       ))}
                     </div>
+                    {editableMetrics && (
+                      <input
+                        type="text"
+                        aria-label={`Job roles for ${m.recruiter_name}`}
+                        value={editById.get(m.id)?.job_roles ?? ''}
+                        onChange={(event) => setEditableMetrics((current) => current?.map((metric) =>
+                          metric.id === m.id ? { ...metric, job_roles: event.target.value } : metric
+                        ) ?? null)}
+                        placeholder="Comma-separated roles"
+                        className="mt-2 w-full min-w-40 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                      />
+                    )}
                   </td>
                   <td className="py-4 px-6 text-right font-semibold text-emerald-600">
-                    {m.connected_calls}
+                    {editableMetrics ? (
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        aria-label={`Connected calls for ${m.recruiter_name}`}
+                        value={editById.get(m.id)?.connected_calls ?? ''}
+                        onChange={(event) => setEditableMetrics((current) => current?.map((metric) =>
+                          metric.id === m.id ? { ...metric, connected_calls: event.target.value } : metric
+                        ) ?? null)}
+                        className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-right text-sm"
+                      />
+                    ) : m.connected_calls}
                   </td>
                   <td className="py-4 px-6 text-right font-medium text-slate-500">
-                    {m.not_connected_calls}
+                    {editableMetrics ? (
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        aria-label={`Not connected calls for ${m.recruiter_name}`}
+                        value={editById.get(m.id)?.not_connected_calls ?? ''}
+                        onChange={(event) => setEditableMetrics((current) => current?.map((metric) =>
+                          metric.id === m.id ? { ...metric, not_connected_calls: event.target.value } : metric
+                        ) ?? null)}
+                        className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-right text-sm"
+                      />
+                    ) : m.not_connected_calls}
                   </td>
                   <td className="py-4 px-6 text-right font-bold text-slate-900">
                     {m.total_calls}
@@ -276,8 +443,21 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
                     </div>
                   </td>
                   <td className="py-4 px-6 text-right font-bold text-amber-600">
-                    🎯 {m.next_day_interviews}
+                    {editableMetrics ? (
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        aria-label={`Interviews for ${m.recruiter_name}`}
+                        value={editById.get(m.id)?.next_day_interviews ?? ''}
+                        onChange={(event) => setEditableMetrics((current) => current?.map((metric) =>
+                          metric.id === m.id ? { ...metric, next_day_interviews: event.target.value } : metric
+                        ) ?? null)}
+                        className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-right text-sm"
+                      />
+                    ) : <>🎯 {m.next_day_interviews}</>}
                   </td>
+                  {editableMetrics && <td className="py-4 px-6 text-right text-xs text-slate-400">Auto</td>}
                 </tr>
               ))}
             </tbody>
@@ -286,11 +466,12 @@ export const ApprovalScreen: React.FC<ApprovalScreenProps> = ({
               <tr className="bg-slate-50 font-bold text-slate-900 border-t-2 border-slate-200">
                 <td className="py-3 px-6">Team Total</td>
                 <td className="py-3 px-6 text-xs text-slate-500">All Roles</td>
-                <td className="py-3 px-6 text-right text-emerald-600">{report.summary_totals.connected_calls}</td>
-                <td className="py-3 px-6 text-right text-slate-500">{report.summary_totals.not_connected_calls}</td>
-                <td className="py-3 px-6 text-right text-slate-900">{report.summary_totals.total_calls}</td>
-                <td className="py-3 px-6 text-center text-brand-600">{report.summary_totals.connected_rate}%</td>
-                <td className="py-3 px-6 text-right text-amber-600">🎯 {report.summary_totals.next_day_interviews}</td>
+                <td className="py-3 px-6 text-right text-emerald-600">{displayedSummary.connected_calls}</td>
+                <td className="py-3 px-6 text-right text-slate-500">{displayedSummary.not_connected_calls}</td>
+                <td className="py-3 px-6 text-right text-slate-900">{displayedSummary.total_calls}</td>
+                <td className="py-3 px-6 text-center text-brand-600">{displayedSummary.connected_rate}%</td>
+                <td className="py-3 px-6 text-right text-amber-600">🎯 {displayedSummary.next_day_interviews}</td>
+                {editableMetrics && <td className="py-3 px-6" />}
               </tr>
             </tfoot>
           </table>

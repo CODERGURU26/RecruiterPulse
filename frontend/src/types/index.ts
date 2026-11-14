@@ -14,6 +14,14 @@ export interface RecruiterMetric {
   unassigned_interviews: number;
 }
 
+export interface RecruiterMetricEdit {
+  id: string;
+  job_roles: string[];
+  connected_calls: number;
+  not_connected_calls: number;
+  next_day_interviews: number;
+}
+
 export interface SummaryTotals {
   total_calls: number;
   connected_calls: number;

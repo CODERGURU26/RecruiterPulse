@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import date, datetime
 from app.models.enums import ReportStatus
@@ -46,7 +46,19 @@ class ReportRejectionRequest(BaseModel):
     reason: str
 
 
+class RecruiterMetricEdit(BaseModel):
+    id: str
+    job_roles: List[str]
+    connected_calls: int = Field(ge=0)
+    not_connected_calls: int = Field(ge=0)
+    next_day_interviews: int = Field(ge=0)
+
+
+class ReportEditRequest(BaseModel):
+    approver_user_id: str
+    metrics: List[RecruiterMetricEdit]
+
+
 class WhatsAppExportResponse(BaseModel):
     report_id: str
     formatted_text: str
-

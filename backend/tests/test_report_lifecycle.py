@@ -1,11 +1,14 @@
 import unittest
 from datetime import date
+from fastapi import HTTPException
 from app.core.database import Base, engine, SessionLocal
 from app.models import (
     Workspace,
     User,
     UserRole,
     HourlyReport,
+    RecruiterDailyMetric,
+    RecruiterProfile,
     ReportStatus,
     AuditLog,
     AuditAction
@@ -14,9 +17,15 @@ from app.api.v1.reports import (
     get_pending_report,
     get_latest_approved_report,
     approve_report,
+    edit_draft_report,
     reject_report
 )
-from app.schemas.report import ReportApprovalRequest, ReportRejectionRequest
+from app.schemas.report import (
+    ReportApprovalRequest,
+    ReportEditRequest,
+    RecruiterMetricEdit,
+    ReportRejectionRequest
+)
 
 
 class TestReportLifecycle(unittest.TestCase):
@@ -29,8 +38,10 @@ class TestReportLifecycle(unittest.TestCase):
     def setUp(self):
         self.db = SessionLocal()
         self.db.query(AuditLog).delete()
+        self.db.query(RecruiterDailyMetric).delete()
         self.db.query(HourlyReport).delete()
         self.db.query(User).delete()
+        self.db.query(RecruiterProfile).delete()
         self.db.query(Workspace).delete()
         self.db.commit()
 
@@ -116,7 +127,82 @@ class TestReportLifecycle(unittest.TestCase):
         self.assertIsNotNone(audit)
         self.assertIn("Rahul", audit.details.get("reason", ""))
 
+    def test_edit_draft_recalculates_metrics_and_audits_changes(self):
+        recruiter = RecruiterProfile(
+            workspace_id=self.ws.id,
+            full_name="Rahul Verma",
+            is_active=True
+        )
+        draft = HourlyReport(
+            workspace_id=self.ws.id,
+            reporting_date=date.today(),
+            hour_slot="14:00",
+            status=ReportStatus.DRAFT_PENDING_APPROVAL,
+            summary_totals={"total_calls": 5}
+        )
+        self.db.add_all([recruiter, draft])
+        self.db.flush()
+        metric = RecruiterDailyMetric(
+            hourly_report_id=draft.id,
+            recruiter_id=recruiter.id,
+            job_roles=["Old Role"],
+            connected_calls=2,
+            not_connected_calls=3,
+            total_calls=5,
+            connected_rate=40,
+            next_day_interviews=1,
+            unassigned_interviews=0
+        )
+        self.db.add(metric)
+        self.db.commit()
+
+        payload = ReportEditRequest(
+            approver_user_id=self.mis_user.id,
+            metrics=[
+                RecruiterMetricEdit(
+                    id=metric.id,
+                    job_roles=["Backend Engineer", "  Backend Engineer  ", "QA"],
+                    connected_calls=6,
+                    not_connected_calls=4,
+                    next_day_interviews=2
+                )
+            ]
+        )
+        updated = edit_draft_report(draft.id, payload, self.db)
+
+        self.assertEqual(updated.summary_totals["total_calls"], 10)
+        self.assertEqual(updated.summary_totals["connected_calls"], 6)
+        self.assertEqual(updated.summary_totals["not_connected_calls"], 4)
+        self.assertEqual(updated.summary_totals["connected_rate"], 60)
+        self.assertEqual(updated.summary_totals["next_day_interviews"], 2)
+        self.assertEqual(updated.metrics[0].job_roles, ["Backend Engineer", "QA"])
+        self.assertEqual(updated.metrics[0].total_calls, 10)
+        self.assertEqual(updated.metrics[0].connected_rate, 60)
+        audit = self.db.query(AuditLog).filter(
+            AuditLog.workspace_id == self.ws.id,
+            AuditLog.action == AuditAction.REPORT_EDITED
+        ).one()
+        self.assertEqual(audit.actor_user_id, self.mis_user.id)
+
+    def test_approved_report_cannot_be_edited(self):
+        draft = HourlyReport(
+            workspace_id=self.ws.id,
+            reporting_date=date.today(),
+            hour_slot="15:00",
+            status=ReportStatus.APPROVED,
+            summary_totals={}
+        )
+        self.db.add(draft)
+        self.db.commit()
+
+        with self.assertRaises(HTTPException) as error:
+            edit_draft_report(
+                draft.id,
+                ReportEditRequest(approver_user_id=self.mis_user.id, metrics=[]),
+                self.db
+            )
+        self.assertEqual(error.exception.status_code, 409)
+
 
 if __name__ == "__main__":
     unittest.main()
-

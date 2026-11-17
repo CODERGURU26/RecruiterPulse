@@ -167,6 +167,7 @@ class SyncCoordinator:
             for recruiter_id, metrics in recruiter_metrics_map.items()
             if metrics.total_calls > 0
         }
+        recruiters_by_calendar: Dict[str, List[Dict[str, Any]]] = {}
         for recruiter in recruiter_dicts:
             if recruiter["id"] not in call_reporting_recruiters:
                 continue
@@ -176,6 +177,26 @@ class SyncCoordinator:
                     f"{recruiter['full_name']}: no Google Calendar ID configured."
                 )
                 continue
+            recruiters_by_calendar.setdefault(calendar_id.casefold(), []).append({
+                **recruiter,
+                "_calendar_id": calendar_id
+            })
+
+        for assigned_recruiters in recruiters_by_calendar.values():
+            calendar_id = assigned_recruiters[0]["_calendar_id"]
+            recruiter_id = (
+                assigned_recruiters[0]["id"]
+                if len(assigned_recruiters) == 1
+                else None
+            )
+            if len(assigned_recruiters) > 1:
+                recruiter_names = ", ".join(
+                    recruiter["full_name"] for recruiter in assigned_recruiters
+                )
+                calendar_warnings.append(
+                    f"Calendar is assigned to multiple recruiters ({recruiter_names}); "
+                    "calendar-owner attribution is disabled until each recruiter has a unique Calendar ID."
+                )
             try:
                 recruiter_events = await GoogleCalendarWorker.fetch_live_calendar_events_async(
                     calendar_id,
@@ -183,13 +204,16 @@ class SyncCoordinator:
                     time_max
                 )
                 for event in recruiter_events:
-                    calendar_events.append({
-                        **event,
-                        "_recruiterpulse_calendar_recruiter_id": recruiter["id"]
-                    })
+                    calendar_event = dict(event)
+                    if recruiter_id:
+                        calendar_event["_recruiterpulse_calendar_recruiter_id"] = recruiter_id
+                    calendar_events.append(calendar_event)
             except Exception as exc:
+                recruiter_names = ", ".join(
+                    recruiter["full_name"] for recruiter in assigned_recruiters
+                )
                 calendar_warnings.append(
-                    f"{recruiter['full_name']}: calendar could not be read ({exc})."
+                    f"{recruiter_names}: calendar could not be read ({exc})."
                 )
 
         calendar_result = GoogleCalendarWorker.process_calendar_events(

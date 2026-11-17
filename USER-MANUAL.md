@@ -90,6 +90,8 @@ The **Registered live recruiter sheets** list shows each recruiter/tab and its l
 
 RecruiterPulse counts non-cancelled events from midnight to midnight **tomorrow**, in the workspace timezone. For a Sunday report, tomorrow is Monday. Calendar counts appear on the corresponding recruiter row and in the team total. If a calendar is missing or inaccessible, the MIS report displays a warning; correct the calendar ID or sharing permission and sync again. Recruiters without a counted call row remain omitted from that day's report.
 
+Assign each recruiter their own correct Calendar ID. If multiple recruiters share one ID, RecruiterPulse warns and will not guess the event owner from that shared calendar; it uses the event organizer, attendees, or recruiter tags when they uniquely identify someone.
+
 ## 5. Daily recruiter workflow
 
 1. Recruiters continue updating their existing Google Sheets call logs. Keep the date, call status, and (where used) role columns populated consistently.

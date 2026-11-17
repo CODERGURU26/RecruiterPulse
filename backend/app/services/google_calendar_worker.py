@@ -72,57 +72,98 @@ class GoogleCalendarWorker:
         if event.get("status") == "cancelled":
             return None
 
+        def unique_match(value: str, recruiter_field: str) -> Optional[str]:
+            normalized = value.casefold().strip()
+            if not normalized:
+                return None
+            matches = {
+                recruiter["id"]
+                for recruiter in recruiters
+                if (recruiter.get(recruiter_field) or "").casefold().strip() == normalized
+            }
+            return next(iter(matches)) if len(matches) == 1 else None
+
+        # Prefer event identity over the calendar that happened to return the event.
+        for field in ("creator", "organizer"):
+            email = (event.get(field, {}).get("email") or "").casefold().strip()
+            matched = unique_match(email, "email")
+            if matched:
+                return matched
+            matched = unique_match(email, "calendar_identifier")
+            if matched:
+                return matched
+
+        organizer_names = [
+            (event.get(field, {}).get("displayName") or "").casefold().strip()
+            for field in ("creator", "organizer")
+        ]
+        for display_name in organizer_names:
+            if not display_name:
+                continue
+            exact_matches = [
+                recruiter["id"]
+                for recruiter in recruiters
+                if (recruiter.get("full_name") or "").casefold().strip() == display_name
+            ]
+            if len(exact_matches) == 1:
+                return exact_matches[0]
+
+            first_name_matches = [
+                recruiter["id"]
+                for recruiter in recruiters
+                if (recruiter.get("full_name") or "").casefold().split()
+                and (recruiter.get("full_name") or "").casefold().split()[0]
+                == display_name.split()[0]
+            ]
+            if len(first_name_matches) == 1:
+                return first_name_matches[0]
+
+        # Tier 2: Attendee Email Match
+        attendees = event.get("attendees", [])
+        attendee_matches = set()
+        for att in attendees:
+            att_email = (att.get("email") or "").casefold().strip()
+            response_status = att.get("responseStatus", "")
+            if response_status == "declined":
+                continue  # Skip declined
+
+            matched = unique_match(att_email, "email")
+            if matched:
+                attendee_matches.add(matched)
+            matched = unique_match(att_email, "calendar_identifier")
+            if matched:
+                attendee_matches.add(matched)
+        if len(attendee_matches) == 1:
+            return next(iter(attendee_matches))
+
+        # Tier 3: Summary or Description Tag Match (e.g. "[Recruiter: Priya]", "Owner: Priya Sharma")
+        summary = (event.get("summary") or "").casefold()
+        description = (event.get("description") or "").casefold()
+        combined_text = f"{summary} {description}"
+        tagged_matches = set()
+        for rec in recruiters:
+            rec_name = rec.get("full_name", "").casefold().strip()
+            if not rec_name:
+                continue
+
+            if (
+                rec_name in combined_text
+                or f"recruiter: {rec_name}" in combined_text
+                or f"owner: {rec_name}" in combined_text
+            ):
+                tagged_matches.add(rec["id"])
+            first_name = rec_name.split()[0]
+            if len(first_name) >= 3 and f"[{first_name}]" in combined_text:
+                tagged_matches.add(rec["id"])
+        if len(tagged_matches) == 1:
+            return next(iter(tagged_matches))
+
+        # Calendar ownership is only a fallback after event metadata and tags.
         source_calendar_recruiter_id = event.get("_recruiterpulse_calendar_recruiter_id")
         if source_calendar_recruiter_id and any(
             rec["id"] == source_calendar_recruiter_id for rec in recruiters
         ):
             return source_calendar_recruiter_id
-
-        # Tier 1: Creator / Organizer Email
-        creator_email = (event.get("creator", {}).get("email") or "").lower().strip()
-        organizer_email = (event.get("organizer", {}).get("email") or "").lower().strip()
-
-        for rec in recruiters:
-            rec_email = (rec.get("email") or "").lower().strip()
-            cal_id = (rec.get("calendar_identifier") or "").lower().strip()
-            if rec_email and (rec_email == creator_email or rec_email == organizer_email):
-                return rec["id"]
-            if cal_id and (cal_id == creator_email or cal_id == organizer_email):
-                return rec["id"]
-
-        # Tier 2: Attendee Email Match
-        attendees = event.get("attendees", [])
-        for att in attendees:
-            att_email = (att.get("email") or "").lower().strip()
-            response_status = att.get("responseStatus", "")
-            if response_status == "declined":
-                continue  # Skip declined
-
-            for rec in recruiters:
-                rec_email = (rec.get("email") or "").lower().strip()
-                if rec_email and rec_email == att_email:
-                    return rec["id"]
-
-        # Tier 3: Summary or Description Tag Match (e.g. "[Recruiter: Priya]", "Owner: Priya Sharma")
-        summary = (event.get("summary") or "").lower()
-        description = (event.get("description") or "").lower()
-        combined_text = f"{summary} {description}"
-
-        for rec in recruiters:
-            rec_name = rec.get("full_name", "").lower().strip()
-            if not rec_name:
-                continue
-
-            # Check full name or explicit tag
-            if rec_name in combined_text or f"recruiter: {rec_name}" in combined_text or f"owner: {rec_name}" in combined_text:
-                return rec["id"]
-
-            # First name match if unique enough
-            first_name = rec_name.split()[0]
-            if len(first_name) >= 3 and f"[{first_name}]" in combined_text:
-                return rec["id"]
-
-        # Tier 4: Fallback to Unassigned
         return None
 
     @classmethod
@@ -142,13 +183,29 @@ class GoogleCalendarWorker:
         unassigned_count = 0
         seen_event_ids: Set[str] = set()
 
-        for ev in events:
+        events_by_id: Dict[str, Dict[str, Any]] = {}
+        shared_calendar_event_ids: Set[str] = set()
+        for event in events:
+            event_id = event.get("id")
+            if not event_id or event.get("status") == "cancelled":
+                continue
+            existing = events_by_id.get(event_id)
+            if existing is None:
+                events_by_id[event_id] = event
+                continue
+
+            original_source = existing.get("_recruiterpulse_calendar_recruiter_id")
+            duplicate_source = event.get("_recruiterpulse_calendar_recruiter_id")
+            if original_source != duplicate_source:
+                shared_calendar_event_ids.add(event_id)
+
+        for event_id in shared_calendar_event_ids:
+            events_by_id[event_id].pop("_recruiterpulse_calendar_recruiter_id", None)
+
+        for ev in events_by_id.values():
             event_id = ev.get("id")
             if not event_id or event_id in seen_event_ids:
                 continue  # Avoid double counting rescheduled events
-
-            if ev.get("status") == "cancelled":
-                continue
 
             # Exclude if any matching recruiter declined the interview
             has_declined_recruiter = False

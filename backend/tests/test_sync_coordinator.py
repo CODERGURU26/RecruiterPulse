@@ -197,6 +197,115 @@ class TestSyncCoordinator(unittest.IsolatedAsyncioTestCase):
             Base.metadata.drop_all(bind=engine)
             engine.dispose()
 
+    async def test_shared_calendar_event_uses_organizer_not_first_calendar_owner(self):
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool
+        )
+        Base.metadata.create_all(bind=engine)
+        db = sessionmaker(bind=engine)()
+        workspace = Workspace(
+            id="shared-calendar-workspace",
+            name="Shared Calendar Test",
+            slug="shared-calendar-test",
+            timezone="Asia/Kolkata"
+        )
+        db.add(workspace)
+        db.add_all([
+            StatusTaxonomy(
+                workspace_id=workspace.id,
+                raw_status="connected",
+                category=CallCategory.CONNECTED,
+                is_default=True
+            ),
+            StatusTaxonomy(
+                workspace_id=workspace.id,
+                raw_status="rnr",
+                category=CallCategory.NOT_CONNECTED,
+                is_default=True
+            )
+        ])
+        recruiters = [
+            RecruiterProfile(
+                workspace_id=workspace.id,
+                full_name=name,
+                calendar_identifier="shared-calendar@example.com"
+            )
+            for name in ("Tanmay", "Priti")
+        ]
+        db.add_all(recruiters)
+        db.flush()
+        for recruiter in recruiters:
+            source = DataSource(
+                workspace_id=workspace.id,
+                recruiter_id=recruiter.id,
+                source_type=SourceType.GOOGLE_SHEET,
+                name=f"{recruiter.full_name} sheet",
+                sheet_id_or_url=f"{recruiter.full_name}-sheet",
+                sync_status=SyncStatus.ACTIVE
+            )
+            db.add(source)
+            db.flush()
+            db.add_all([
+                ColumnMapping(
+                    data_source_id=source.id,
+                    standard_field=StandardField.ACTIVITY_DATE,
+                    source_column_name="Date"
+                ),
+                ColumnMapping(
+                    data_source_id=source.id,
+                    standard_field=StandardField.CALL_STATUS,
+                    source_column_name="Status"
+                )
+            ])
+        db.commit()
+        target_day = date(2026, 11, 18)
+
+        async def fetch_sheet(sheet_id, _tab_name):
+            return pd.DataFrame({
+                "Date": ["17/11/2026"],
+                "Status": ["Connected"]
+            })
+
+        event = {
+            "id": "priti-event",
+            "status": "confirmed",
+            "organizer": {
+                "email": "external-organizer@example.com",
+                "displayName": "Priti Yadav"
+            }
+        }
+
+        try:
+            with patch(
+                "app.services.sync_coordinator.GoogleSheetsWorker.fetch_sheet_dataframe",
+                new=AsyncMock(side_effect=fetch_sheet)
+            ), patch(
+                "app.services.sync_coordinator.GoogleCalendarWorker.fetch_live_calendar_events_async",
+                new=AsyncMock(return_value=[event])
+            ) as calendar_fetch:
+                report = await SyncCoordinator.run_workspace_sync(
+                    workspace.id,
+                    db,
+                    override_date=target_day - timedelta(days=1),
+                    override_slot="13:00"
+                )
+
+            self.assertEqual(calendar_fetch.await_count, 1)
+            interviews_by_recruiter = {
+                metric.recruiter.full_name: metric.next_day_interviews
+                for metric in report.metrics
+            }
+            self.assertEqual(interviews_by_recruiter, {"Tanmay": 0, "Priti": 1})
+            self.assertEqual(report.summary_totals["next_day_interviews"], 1)
+            self.assertEqual(len(report.summary_totals["calendar_sync_warnings"]), 1)
+            self.assertIn("multiple recruiters", report.summary_totals["calendar_sync_warnings"][0])
+        finally:
+            db.close()
+            Base.metadata.drop_all(bind=engine)
+            engine.dispose()
+
     async def test_unavailable_calendar_is_reported_as_warning_without_losing_call_report(self):
         engine = create_engine(
             "sqlite://",

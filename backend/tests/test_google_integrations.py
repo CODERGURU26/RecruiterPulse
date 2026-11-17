@@ -170,6 +170,64 @@ class TestGoogleIntegrations(unittest.TestCase):
         self.assertEqual(result.total_interviews, 4)
         self.assertEqual(len(result.processed_event_ids), 4)
 
+    def test_calendar_owner_is_only_fallback_after_event_organizer(self):
+        recruiters = [
+            {
+                "id": "tanmay",
+                "full_name": "Tanmay",
+                "email": "tanmay@example.com",
+                "calendar_identifier": "tanmay-calendar"
+            },
+            {
+                "id": "priti",
+                "full_name": "Priti",
+                "email": "priti@example.com",
+                "calendar_identifier": "priti-calendar"
+            }
+        ]
+        event = {
+            "id": "priti-interview",
+            "status": "confirmed",
+            "organizer": {"email": "priti@example.com", "displayName": "Priti Yadav"},
+            "_recruiterpulse_calendar_recruiter_id": "tanmay"
+        }
+
+        self.assertEqual(
+            GoogleCalendarWorker.attribute_event_to_recruiter(event, recruiters),
+            "priti"
+        )
+
+    def test_organizer_display_name_resolves_recruiter_when_email_is_not_known(self):
+        recruiters = [
+            {"id": "tanmay", "full_name": "Tanmay"},
+            {"id": "priti", "full_name": "Priti"}
+        ]
+        event = {
+            "id": "priti-interview",
+            "status": "confirmed",
+            "organizer": {"displayName": "Priti Yadav"},
+            "_recruiterpulse_calendar_recruiter_id": "tanmay"
+        }
+
+        self.assertEqual(
+            GoogleCalendarWorker.attribute_event_to_recruiter(event, recruiters),
+            "priti"
+        )
+
+    def test_duplicate_calendar_assignment_does_not_guess_calendar_owner(self):
+        recruiters = [
+            {"id": "tanmay", "full_name": "Tanmay", "calendar_identifier": "shared"},
+            {"id": "priti", "full_name": "Priti", "calendar_identifier": "shared"}
+        ]
+        event = {
+            "id": "unattributed",
+            "status": "confirmed"
+        }
+
+        self.assertIsNone(
+            GoogleCalendarWorker.attribute_event_to_recruiter(event, recruiters)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

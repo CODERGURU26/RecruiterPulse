@@ -3,7 +3,8 @@ import { Navbar } from './components/Navbar';
 import { ApprovalScreen } from './pages/ApprovalScreen';
 import { ManagementDashboard } from './pages/ManagementDashboard';
 import { DataSourcesScreen } from './pages/DataSourcesScreen';
-import { HourlyReport, Workspace } from './types';
+import { LoginScreen } from './pages/LoginScreen';
+import { AuthStatus, HourlyReport, Workspace } from './types';
 import { api } from './services/api';
 
 type AppTab = 'approval' | 'dashboard' | 'sources';
@@ -14,6 +15,8 @@ export function App() {
   const [report, setReport] = useState<HourlyReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
@@ -32,8 +35,47 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    void loadWorkspace();
+    let disposed = false;
+    const initialize = async () => {
+      try {
+        const status = await api.getAuthStatus();
+        if (disposed) return;
+        setAuthStatus(status);
+        if (!status.required || status.authenticated) await loadWorkspace();
+      } catch (error) {
+        if (!disposed) {
+          setLoadError(error instanceof Error ? error.message : 'Unable to check sign-in status.');
+          setLoading(false);
+        }
+      } finally {
+        if (!disposed) setAuthChecking(false);
+      }
+    };
+    void initialize();
+    return () => {
+      disposed = true;
+    };
   }, [loadWorkspace]);
+
+  const handleLogin = async (email: string, password: string) => {
+    await api.login(email, password);
+    const status = await api.getAuthStatus();
+    setAuthStatus(status);
+    await loadWorkspace();
+  };
+
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+      setAuthStatus((current) => current ? { ...current, authenticated: false, user: null } : current);
+      setWorkspace(null);
+      setReport(null);
+      setLoading(false);
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Unable to sign out.');
+    }
+  };
 
   useEffect(() => {
     if (!workspace || activeTab === 'sources') return;
@@ -76,6 +118,18 @@ export function App() {
     }
   };
 
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="w-10 h-10 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (authStatus?.required && !authStatus.authenticated) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
+
   if (loading || !workspace) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
@@ -101,6 +155,8 @@ export function App() {
         setActiveTab={handleTabChange}
         workspaceName={workspace.name}
         hasPendingReport={report?.status === 'DRAFT_PENDING_APPROVAL'}
+        signedInName={authStatus?.user?.full_name}
+        onSignOut={authStatus?.required ? handleLogout : undefined}
       />
 
       <main className="flex-1 pb-16">

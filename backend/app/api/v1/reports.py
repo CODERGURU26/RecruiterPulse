@@ -4,6 +4,7 @@ from typing import List, Optional
 from datetime import date, datetime, timezone
 
 from app.core.database import get_db
+from app.api.v1.auth import authenticated_user_id
 from app.models import (
     HourlyReport,
     RecruiterDailyMetric,
@@ -101,7 +102,8 @@ def get_latest_approved_report(workspace_id: str = Query(...), db: Session = Dep
 def edit_draft_report(
     report_id: str,
     payload: ReportEditRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user_id: Optional[str] = Depends(authenticated_user_id)
 ):
     """Updates report metrics while a report is still awaiting MIS approval."""
     report = db.query(HourlyReport).filter(HourlyReport.id == report_id).first()
@@ -113,8 +115,9 @@ def edit_draft_report(
             detail="Only reports awaiting approval can be edited."
         )
 
+    user_id = current_user_id if isinstance(current_user_id, str) else payload.approver_user_id
     user = db.query(User).filter(
-        User.id == payload.approver_user_id,
+        User.id == user_id,
         User.workspace_id == report.workspace_id
     ).first()
     if not user:
@@ -198,7 +201,12 @@ def edit_draft_report(
 
 
 @router.post("/{report_id}/approve", response_model=HourlyReportResponse)
-def approve_report(report_id: str, payload: ReportApprovalRequest, db: Session = Depends(get_db)):
+def approve_report(
+    report_id: str,
+    payload: ReportApprovalRequest,
+    db: Session = Depends(get_db),
+    current_user_id: Optional[str] = Depends(authenticated_user_id)
+):
     """
     MIS Executive approves the hourly report.
     Transitions status to APPROVED, records approver identity & timestamp.
@@ -212,7 +220,11 @@ def approve_report(report_id: str, payload: ReportApprovalRequest, db: Session =
             detail="Only reports awaiting approval can be approved."
         )
 
-    user = db.query(User).filter(User.id == payload.approver_user_id).first()
+    user_id = current_user_id if isinstance(current_user_id, str) else payload.approver_user_id
+    user = db.query(User).filter(
+        User.id == user_id,
+        User.workspace_id == report.workspace_id
+    ).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Approver user not found.")
 
@@ -235,7 +247,12 @@ def approve_report(report_id: str, payload: ReportApprovalRequest, db: Session =
 
 
 @router.post("/{report_id}/reject", response_model=HourlyReportResponse)
-def reject_report(report_id: str, payload: ReportRejectionRequest, db: Session = Depends(get_db)):
+def reject_report(
+    report_id: str,
+    payload: ReportRejectionRequest,
+    db: Session = Depends(get_db),
+    current_user_id: Optional[str] = Depends(authenticated_user_id)
+):
     """
     MIS Executive rejects the hourly draft report with a reason.
     """
@@ -248,7 +265,11 @@ def reject_report(report_id: str, payload: ReportRejectionRequest, db: Session =
             detail="Only reports awaiting approval can be rejected."
         )
 
-    user = db.query(User).filter(User.id == payload.approver_user_id).first()
+    user_id = current_user_id if isinstance(current_user_id, str) else payload.approver_user_id
+    user = db.query(User).filter(
+        User.id == user_id,
+        User.workspace_id == report.workspace_id
+    ).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Approver user not found.")
 

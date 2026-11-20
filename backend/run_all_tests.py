@@ -29,6 +29,7 @@ def main():
     from tests.test_real_file_processing import TestRealFileProcessing
     from tests.test_sync_coordinator import TestSyncCoordinator
     from tests.test_workspace_bootstrap import TestWorkspaceBootstrap
+    from tests.test_auth import TestAuthentication, TestAuthenticationFlow
 
     suite.addTests(loader.loadTestsFromTestCase(TestColumnDetector))
     suite.addTests(loader.loadTestsFromTestCase(TestCalculationEngine))
@@ -41,6 +42,8 @@ def main():
     suite.addTests(loader.loadTestsFromTestCase(TestRealFileProcessing))
     suite.addTests(loader.loadTestsFromTestCase(TestSyncCoordinator))
     suite.addTests(loader.loadTestsFromTestCase(TestWorkspaceBootstrap))
+    suite.addTests(loader.loadTestsFromTestCase(TestAuthentication))
+    suite.addTests(loader.loadTestsFromTestCase(TestAuthenticationFlow))
 
 
     runner = unittest.TextTestRunner(verbosity=2)

@@ -1,18 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, Clock, ShieldCheck, BarChart3, Database } from 'lucide-react';
+import { Activity, Clock, ShieldCheck, BarChart3, Database, LogOut } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: 'approval' | 'dashboard' | 'sources';
   setActiveTab: (tab: 'approval' | 'dashboard' | 'sources') => void;
   workspaceName?: string;
   hasPendingReport?: boolean;
+  signedInName?: string;
+  onSignOut?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
   workspaceName = 'RecruiterPulse',
-  hasPendingReport = false
+  hasPendingReport = false,
+  signedInName,
+  onSignOut
 }) => {
   const [time, setTime] = useState<string>('');
 
@@ -104,9 +108,23 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Live IST Clock */}
-          <div className="hidden md:flex items-center space-x-2 px-3 py-1.5 bg-slate-100 rounded-lg text-xs font-semibold text-slate-700">
-            <Clock className="w-3.5 h-3.5 text-slate-500" />
-            <span>{time}</span>
+          <div className="hidden md:flex items-center space-x-3">
+            <div className="flex items-center space-x-2 px-3 py-1.5 bg-slate-100 rounded-lg text-xs font-semibold text-slate-700">
+              <Clock className="w-3.5 h-3.5 text-slate-500" />
+              <span>{time}</span>
+            </div>
+            {onSignOut && (
+              <button
+                type="button"
+                onClick={onSignOut}
+                title={`Signed in as ${signedInName || 'user'}`}
+                className="flex items-center space-x-2 px-3 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                <span className="max-w-28 truncate">{signedInName || 'Account'}</span>
+                <LogOut className="w-4 h-4" />
+                <span>Sign out</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

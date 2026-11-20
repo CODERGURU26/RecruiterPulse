@@ -1,6 +1,16 @@
 export type UserRole = 'AGENCY_OWNER' | 'MANAGER' | 'MIS_EXECUTIVE' | 'RECRUITER';
 export type ReportStatus = 'DRAFT_PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SUPERSEDED';
 
+export interface AuthStatus {
+  required: boolean;
+  authenticated: boolean;
+  user: {
+    id: string;
+    email: string;
+    full_name: string;
+  } | null;
+}
+
 export interface RecruiterMetric {
   id: string;
   recruiter_id: string;

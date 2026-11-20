@@ -36,6 +36,8 @@ npm run dev
 
 Open the local address printed by Vite, normally `http://localhost:3000`. Keep both terminals running. The backend provisions the default workspace on startup; if the page was already open, refresh it.
 
+For a hosted Render deployment with separate sign-ins for you and your manager, follow the [deployment instructions in the README](./README.md#deploy-on-render-and-invite-a-manager). Local development does not require sign-in.
+
 ## 2. Connect private Google Sheets (one-time setup)
 
 The backend uses a Google service account to read private spreadsheets. It needs **Viewer** access only.

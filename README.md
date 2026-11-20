@@ -2,6 +2,28 @@
 
 RecruiterPulse imports recruiter call logs, calculates per-recruiter daily metrics, and creates a draft MIS report for review.
 
+## Deploy on Render and invite a manager
+
+The Render Blueprint uses a paid, always-on web service and managed PostgreSQL. The scheduled Google Sheets refresh runs inside the web process, so an always-on service is needed. Production API routes require individual sign-in accounts; the local SQLite database is not copied, and the new deployment starts with an empty workspace.
+
+1. Generate a password hash for each person from the `backend` folder. Run `python -m app.auth_cli` once for yourself and once for your manager. Each run prompts for a password and prints only its PBKDF2 hash. Use a unique password of at least 12 characters; do not send passwords or hashes in chat.
+2. Push this repository to the Git branch you want Render to deploy. In Render, choose **New → Blueprint**, connect the repository, and select `render.yaml`.
+3. When asked for `AUTH_USERS_JSON`, enter the two account records below, replacing all example values with your work emails, names, generated hashes, and roles. Use `AGENCY_OWNER` for yourself and `MANAGER` for your manager:
+
+   ```json
+   [
+     {"email":"you@company.com","full_name":"Your Name","password_hash":"pbkdf2_sha256$...","role":"AGENCY_OWNER"},
+     {"email":"manager@company.com","full_name":"Manager Name","password_hash":"pbkdf2_sha256$...","role":"MANAGER"}
+   ]
+   ```
+
+   Keep this configuration in Render's environment settings, not in source control. Both accounts can view, edit, and approve reports. Each person's actions are recorded against their own account.
+4. Create the Blueprint resources. Render generates `SECRET_KEY` and provisions PostgreSQL. The app rejects production startup if the database or sign-in accounts are missing.
+5. To continue live Google Sheets sync, add the Google service-account JSON as a Render **Secret File** at `/etc/secrets/recruiterpulse-google-service-account.json`, then set `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_SERVICE_ACCOUNT_KEY_PATH=/etc/secrets/recruiterpulse-google-service-account.json` in the web service environment. Share the recruiter workbooks with that service-account email as **Viewer**. Never enable public access for recruiter workbooks.
+6. After the first successful deploy, send your manager the Render HTTPS URL. She signs in with her own email and password. Do not send her your credentials.
+
+The Render database starts fresh by design: current local reports, recruiters, and registered spreadsheet sources remain only in the local database. Re-register the live sheets in the hosted app; historical records would need a separate approved migration. Use Render's paid database plan and keep backups enabled for durable production data.
+
 ## Run locally
 
 1. From `backend`, run `pip install -r requirements.txt`, then `uvicorn app.main:app --reload`. Backend startup automatically ensures the default Apex workspace and its starter data exist; `python seed_db.py` can also be run manually.

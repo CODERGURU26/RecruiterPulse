@@ -12,7 +12,7 @@ export const DEFAULT_WORKSPACE_ID = 'ws-apex-101';
 const DEFAULT_APPROVER_USER_ID = 'usr-admin';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  const response = await fetch(url, { credentials: 'same-origin', ...init });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     const detail = body?.detail;
@@ -22,6 +22,22 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getAuthStatus(): Promise<AuthStatus> {
+    return request(`${API_BASE}/auth/status`);
+  },
+
+  login(email: string, password: string): Promise<{ authenticated: boolean }> {
+    return request(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+  },
+
+  logout(): Promise<{ authenticated: boolean }> {
+    return request(`${API_BASE}/auth/logout`, { method: 'POST' });
+  },
+
   getWorkspace(workspaceId?: string): Promise<Workspace> {
     const path = workspaceId
       ? `${API_BASE}/workspaces/${workspaceId}`

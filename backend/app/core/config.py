@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "RecruiterPulse"
     VERSION: str = "1.1.0"
     API_V1_STR: str = "/api/v1"
+    APP_ENV: str = "development"
 
     # Database
     # Default to fixed local SQLite inside backend folder for instant dev/testing, override with PostgreSQL in production:
@@ -16,6 +17,7 @@ class Settings(BaseSettings):
     # Security & Auth
     SECRET_KEY: str = "recruiterpulse-super-secret-key-change-in-production-2026"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    AUTH_USERS_JSON: str = "[]"
 
     # Google Service Account
     GOOGLE_SERVICE_ACCOUNT_EMAIL: Optional[str] = None

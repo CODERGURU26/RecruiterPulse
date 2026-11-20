@@ -8,7 +8,7 @@ The Render Blueprint uses a paid, always-on web service and managed PostgreSQL. 
 
 1. Generate a password hash for each person from the `backend` folder. Run `python -m app.auth_cli` once for yourself and once for your manager. Each run prompts for a password and prints only its PBKDF2 hash. Use a unique password of at least 12 characters; do not send passwords or hashes in chat.
 2. Push this repository to the Git branch you want Render to deploy. In Render, choose **New → Blueprint**, connect the repository, and select `render.yaml`.
-3. When asked for `AUTH_USERS_JSON`, enter the two account records below, replacing all example values with your work emails, names, generated hashes, and roles. Use `AGENCY_OWNER` for yourself and `MANAGER` for your manager:
+3. Configure `AUTH_USERS_JSON` in the Render web service's **Environment** settings before its first successful deploy. If the Blueprint flow prompts for the value, enter it there. Use the two account records below, replacing all example values with your work emails, names, generated hashes, and roles. Use `AGENCY_OWNER` for yourself and `MANAGER` for your manager:
 
    ```json
    [
